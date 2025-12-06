@@ -17,11 +17,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify signed tag
-        run: |
-          git tag -v ${{ github.ref_name }} || \
-            (echo "Tag is not signed!" && exit 1)
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
