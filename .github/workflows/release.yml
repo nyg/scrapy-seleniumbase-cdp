@@ -1,0 +1,46 @@
+name: Create GitHub release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+
+
+jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify signed tag
+        run: |
+          git tag -v ${{ github.ref_name }} || \
+            (echo "Tag is not signed!" && exit 1)
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: -vv --latest --strip all
+
+      - name: Create release
+        run: gh release create ${{ github.ref_name }} -F git-cliff/CHANGELOG.md dist/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
