@@ -1,13 +1,20 @@
 [project]
-name = "scrapy-seleniumbase"
+name = "scrapy-seleniumbase-cdp"
 version = "0.0.1"
 authors = [
-  { name = "Quartz-Core"},
+    { name = "nyg" },
 ]
-description = "Scrapy middleware to handle javascript pages using seleniumbase driver."
-requires-python = ">=3.8"
-license = { text = "WTFPL" }
+description = "Scrapy downloader middleware that uses SeleniumBase's pure CDP mode to make requests."
 readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = { text = "MIT" }
+license-files = ["LICEN[CS]E*"]
+
 [project.urls]
-Homepage = "https://github.com/Quartz-Core/scrapy-seleniumbase"
-Issues = "https://github.com/Quartz-Core/scrapy-seleniumbase/issue"
+Homepage = "https://github.com/nyg/scrapy-seleniumbase-cdp"
+Issues = "https://github.com/nyg/scrapy-seleniumbase-cdp/issue"

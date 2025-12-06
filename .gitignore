@@ -1,1 +1,9 @@
-/.venv
+# jetbrains
+*.iml
+.idea
+
+# python
+.venv
+
+# misc
+.DS_Store
