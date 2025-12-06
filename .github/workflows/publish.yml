@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Download release assets
         run: |
-          gh release download ${{ github.event.release.tag_name }} -D dist
+          gh release download ${{ github.event.release.tag_name }} -D dist -R ${{ github.repository }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
