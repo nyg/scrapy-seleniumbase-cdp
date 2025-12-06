@@ -38,4 +38,4 @@ jobs:
       - name: Create release
         run: gh release create ${{ github.ref_name }} -F git-cliff/CHANGELOG.md dist/*
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
