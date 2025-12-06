@@ -4,6 +4,7 @@
 
 # python
 .venv
+dist
 
 # misc
 .DS_Store
