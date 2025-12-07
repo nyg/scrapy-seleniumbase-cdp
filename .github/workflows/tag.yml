@@ -38,15 +38,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump version
-        run: |
-          cz bump --yes --increment ${{ inputs.version_bump }}
-          echo "NEW_VERSION=$(cz version -p)" >> $GITHUB_ENV
-
-      - name: Push changes
-        run: git push
-
-      - name: Create and push tag
-        run: |
-          git tag "v${{ env.NEW_VERSION }}"
-          git push origin "v${{ env.NEW_VERSION }}"
+      - name: Bump version and push
+        run: cz bump --yes --increment ${{ inputs.version_bump }}
