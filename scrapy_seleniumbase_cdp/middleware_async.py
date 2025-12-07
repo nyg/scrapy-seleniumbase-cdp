@@ -17,7 +17,7 @@ from importlib import import_module
 from scrapy import signals
 from scrapy.http import HtmlResponse
 
-from scrapy_seleniumbase_cdp import SeleniumBaseRequest
+from .request import SeleniumBaseRequest
 
 
 class SeleniumBaseAsyncCDPMiddleware:
