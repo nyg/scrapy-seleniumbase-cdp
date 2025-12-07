@@ -1,4 +1,4 @@
-name: Create GitHub release
+name: Create GitHub release when a tag is pushed
 
 on:
   push:

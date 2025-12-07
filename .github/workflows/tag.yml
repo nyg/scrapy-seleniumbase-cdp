@@ -1,0 +1,55 @@
+name: Bump version and create tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install hatch
+        run: pip install hatch
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        run: |
+          hatch version ${{ inputs.version_bump }}
+          echo "NEW_VERSION=$(hatch version)" >> $GITHUB_ENV
+
+      - name: Commit version bump
+        run: |
+          git add pyproject.toml
+          git commit -m "chore(release): bump version to ${{ env.NEW_VERSION }}"
+          git push
+
+      - name: Create and push tag
+        run: |
+          git tag "v${{ env.NEW_VERSION }}"
+          git push origin "v${{ env.NEW_VERSION }}"
