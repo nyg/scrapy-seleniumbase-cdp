@@ -30,8 +30,8 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install hatch
-        run: pip install hatch
+      - name: Install commitizen
+        run: pip install commitizen
 
       - name: Configure git
         run: |
@@ -40,14 +40,11 @@ jobs:
 
       - name: Bump version
         run: |
-          hatch version ${{ inputs.version_bump }}
-          echo "NEW_VERSION=$(hatch version)" >> $GITHUB_ENV
+          cz bump --yes --increment ${{ inputs.version_bump }}
+          echo "NEW_VERSION=$(cz version -p)" >> $GITHUB_ENV
 
-      - name: Commit version bump
-        run: |
-          git add pyproject.toml
-          git commit -m "chore(release): bump version to ${{ env.NEW_VERSION }}"
-          git push
+      - name: Push changes
+        run: git push
 
       - name: Create and push tag
         run: |
