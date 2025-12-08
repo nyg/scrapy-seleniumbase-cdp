@@ -1,52 +1,54 @@
 # scrapy-selenium-cdp
 
-Scrapy downloader middleware that uses SeleniumBase's pure CDP mode to make
+[![PyPI](https://img.shields.io/pypi/v/scrapy-seleniumbase-cdp)](https://pypi.org/project/scrapy-seleniumbase-cdp/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/scrapy-seleniumbase-cdp)](https://pypi.org/project/scrapy-seleniumbase-cdp/)
+[![License](https://img.shields.io/pypi/l/scrapy-seleniumbase-cdp)](https://github.com/nyg/scrapy-seleniumbase-cdp/blob/master/LICENSE)
+[![Downloads](https://img.shields.io/pypi/dm/scrapy-seleniumbase-cdp)](https://pypi.org/project/scrapy-seleniumbase-cdp/)
+
+Scrapy downloader middleware that uses [SeleniumBase][4]'s pure CDP mode to make
 requests, allowing to bypass most anti-bot protections (e.g. CloudFlare).
 
 Using Selenium's pure CDP mode also makes the middle more platform independent
 as no WebDriver is required.
 
-🚧 Work in progress 🚧
+🚧 Work in progress, see working example [here][5]. 🚧
 
 ## Installation
 
 ```
-pip install git+https://github.com/nyg/scrapy-seleniumbase-cdp
+pip install scrapy-seleniumbase-cdp
 ```
 
 ## Configuration
 
-1. Provide keyword arguments for Driver in dict. For example:
-
-   ```python
-   SELENIUMBASE_DRIVER_KWARGS = {
-   "browser": "chrome",
-   "uc": True,
-   "headless": True,
-   "block_images": True,
-   }
-   ```
-
-2. Add the `SeleniumBaseMiddleware` to the downloader middlewares:
+1. Add the `SeleniumBaseAsyncCDPMiddleware` to the downloader middlewares:
     ```python
     DOWNLOADER_MIDDLEWARES = {
-        'scrapy_seleniumbase.SeleniumBaseMiddleware': 800
+        'scrapy_seleniumbase_cdp.SeleniumBaseAsyncCDPMiddleware': 800
     }
     ```
 
+2. If needed, Driver configuration can be provided:
+
+   ```python
+   SELENIUMBASE_DRIVER_KWARGS = {
+       # …
+   }
+   ```
+
 ## Usage
 
-Use the `scrapy_seleniumbase.SeleniumBaseRequest` instead of the scrapy built-in
-`Request` like below:
+Use the `scrapy_seleniumbase_cdp.SeleniumBaseRequest` instead of the scrapy
+built-in `Request` like below:
 
 ```python
-from scrapy_seleniumbase import SeleniumBaseRequest
+from scrapy_seleniumbase_cdp import SeleniumBaseRequest
 
 yield SeleniumBaseRequest(url=url, callback=self.parse_result)
 ```
 
-The request will be handled by seleniumbase, and the request will have an
-additional `meta` key, named `driver` containing the seleniumbase driver with
+The request will be handled by SeleniumBase, and the request will have an
+additional `meta` key, named `driver` containing the SeleniumBase driver with
 the request processed.
 
 ```python
@@ -144,3 +146,7 @@ which was originally released under the WTFPL.
 [2]: https://seleniumbase.io/help_docs/method_summary/#seleniumbase-methods-api-reference
 
 [3]: http://selenium-python.readthedocs.io/waits.html#explicit-waits
+
+[4]: https://seleniumbase.io/examples/cdp_mode/ReadMe/
+
+[5]: https://github.com/nyg/autoscout24-trends
