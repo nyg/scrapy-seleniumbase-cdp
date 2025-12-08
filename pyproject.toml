@@ -13,12 +13,25 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 license = { text = "MIT" }
-license-files = ["LICEN[CS]E*"]
+license-files = ["LICENSE"]
+dependencies = [
+    "scrapy>=2.0",
+    "seleniumbase>=4.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/nyg/scrapy-seleniumbase-cdp"
-Issues = "https://github.com/nyg/scrapy-seleniumbase-cdp/issue"
+Issues = "https://github.com/nyg/scrapy-seleniumbase-cdp/issues"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.0.1"
+tag_format = "v$version"
+bump_message = "chore(release): bump version from $current_version to $new_version"
+version_files = [
+    "pyproject.toml:version"
+]
