@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Publish to PyPI when a release is published
 
 on:
   release:
@@ -15,7 +15,7 @@ jobs:
         run: |
           gh release download ${{ github.event.release.tag_name }} -D dist -R ${{ github.repository }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
