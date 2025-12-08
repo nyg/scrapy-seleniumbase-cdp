@@ -24,6 +24,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
+          ref: master
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,4 +43,4 @@ jobs:
         run: cz bump --yes --increment ${{ inputs.version_bump }}
 
       - name: Push changes and tags
-        run: git push --tags
+        run: git push origin master --tags
