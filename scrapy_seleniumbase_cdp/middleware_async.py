@@ -13,9 +13,10 @@
 #      https://github.com/seleniumbase/SeleniumBase/discussions/3955
 
 from importlib import import_module
+from typing import Optional, Dict, Any
 
 from scrapy import signals
-from scrapy.http import HtmlResponse
+from scrapy.http import HtmlResponse, Request
 
 from .request import SeleniumBaseRequest
 
@@ -23,7 +24,7 @@ from .request import SeleniumBaseRequest
 class SeleniumBaseAsyncCDPMiddleware:
     """Scrapy middleware handling the requests using seleniumbase"""
 
-    def __init__(self, driver_kwargs):
+    def __init__(self, driver_kwargs: Dict[str, Any]):
         """Initialize the selenium webdriver
 
         Parameters
@@ -46,31 +47,76 @@ class SeleniumBaseAsyncCDPMiddleware:
         crawler.signals.connect(middleware.spider_closed, signals.spider_closed)
         return middleware
 
-    async def process_request(self, request, spider):
+    async def process_request(self, request: Request, spider) -> Optional[HtmlResponse]:
         """Process a request using the selenium driver if applicable"""
 
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
-        page = await self.driver.get(request.url)
+        try:
+            page = await self.driver.get(request.url)
 
-        if request.wait_until:
-            try:
-                await page.select(request.wait_until, timeout=request.wait_time if hasattr(request, 'wait_time') else 10)
-            except Exception as e:
-                spider.logger.warning(f'Element not found: {request.wait_until}, {e}')
+            # Handle wait_until condition
+            if request.wait_until:
+                try:
+                    timeout = request.wait_time if request.wait_time else 10
+                    await page.select(request.wait_until, timeout=timeout)
+                except Exception as e:
+                    spider.logger.warning(f'Element not found: {request.wait_until}, {e}')
 
-        request.meta.update({'driver': self.driver})
+            # Execute custom JavaScript if provided
+            if request.script:
+                try:
+                    await page.evaluate(request.script)
+                except Exception as e:
+                    spider.logger.warning(f'Script execution failed: {e}')
 
-        page_source = await page.evaluate('document.documentElement.outerHTML')
-        body = str.encode(page_source)
+            # Execute driver methods if provided
+            if request.driver_methods:
+                for method in request.driver_methods:
+                    try:
+                        # Execute the method string on the driver
+                        await page.evaluate(f'() => {{ {method} }}')
+                    except Exception as e:
+                        spider.logger.warning(f'Driver method execution failed: {method}, {e}')
 
-        return HtmlResponse(await page.evaluate('window.location.href'), body=body, encoding='utf-8', request=request)
+            # Take screenshot if requested
+            if request.screenshot:
+                try:
+                    screenshot_data = await page.screenshot()
+                    request.meta.update({'screenshot': screenshot_data})
+                except Exception as e:
+                    spider.logger.warning(f'Screenshot failed: {e}')
+
+            request.meta.update({'driver': self.driver})
+
+            page_source = await page.evaluate('document.documentElement.outerHTML')
+            body = str.encode(page_source)
+
+            return HtmlResponse(
+                await page.evaluate('window.location.href'),
+                body=body,
+                encoding='utf-8',
+                request=request
+            )
+        except Exception as e:
+            spider.logger.error(f'Error processing request {request.url}: {e}')
+            raise
 
     async def spider_opened(self, spider):
         """Start the CDP driver when spider opens"""
-        self.driver = await self.start_async_driver(**self.driver_kwargs)
+        try:
+            self.driver = await self.start_async_driver(**self.driver_kwargs)
+            spider.logger.info('SeleniumBase CDP driver started successfully')
+        except Exception as e:
+            spider.logger.error(f'Failed to start CDP driver: {e}')
+            raise
 
-    def spider_closed(self):
+    def spider_closed(self, spider):
         """Shutdown the driver when spider is closed"""
-        self.driver.stop()
+        if self.driver:
+            try:
+                self.driver.stop()
+                spider.logger.info('SeleniumBase CDP driver stopped')
+            except Exception as e:
+                spider.logger.error(f'Error stopping CDP driver: {e}')
