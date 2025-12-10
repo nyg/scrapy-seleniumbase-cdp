@@ -1,5 +1,6 @@
 """This module contains the ``SeleniumBaseRequest`` class"""
 
+from typing import Optional, List
 from scrapy import Request
 
 
@@ -8,11 +9,11 @@ class SeleniumBaseRequest(Request):
 
     def __init__(
         self,
-        wait_time=None,
-        wait_until=None,
-        screenshot=False,
-        script=None,
-        driver_methods=None,
+        wait_time: Optional[int] = None,
+        wait_until: Optional[str] = None,
+        screenshot: bool = False,
+        script: Optional[str] = None,
+        driver_methods: Optional[List[str]] = None,
         *args,
         **kwargs
     ):

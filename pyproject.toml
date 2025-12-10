@@ -10,13 +10,27 @@ requires-python = ">=3.8"
 classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
+    "Framework :: Scrapy",
+    "License :: OSI Approved :: MIT License",
 ]
 license = { text = "MIT" }
 license-files = ["LICENSE"]
 dependencies = [
     "scrapy>=2.0",
     "seleniumbase>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0",
 ]
 
 [project.urls]
