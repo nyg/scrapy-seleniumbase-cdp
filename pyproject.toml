@@ -8,16 +8,11 @@ description = "Scrapy downloader middleware that uses SeleniumBase's pure CDP mo
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Operating System :: OS Independent",
     "Framework :: Scrapy",
-    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License"
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
 ]
 license = { text = "MIT" }
 license-files = ["LICENSE"]
