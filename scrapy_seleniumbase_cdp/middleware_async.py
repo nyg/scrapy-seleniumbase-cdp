@@ -12,12 +12,12 @@
 # Doc: https://github.com/seleniumbase/SeleniumBase/blob/master/help_docs/syntax_formats.md#sb_sf_24
 #      https://github.com/seleniumbase/SeleniumBase/discussions/3955
 from base64 import b64decode
-from importlib import import_module
 
 import mycdp
 from scrapy import Request
 from scrapy import signals, Spider
 from scrapy.http import HtmlResponse
+from seleniumbase.undetected import cdp_driver
 from seleniumbase.undetected.cdp_driver import tab
 from seleniumbase.undetected.cdp_driver.browser import Browser
 
@@ -35,9 +35,6 @@ class SeleniumBaseAsyncCDPMiddleware:
         driver_kwargs: dict
             A dictionary of keyword arguments to initialize the driver with.
         """
-        seleniumbase_cdp = import_module("seleniumbase")
-        cdp_module = getattr(seleniumbase_cdp, 'cdp_driver')
-        self.start_async_driver = getattr(cdp_module, "start_async")
         self.driver: Browser | None = None
         self.driver_kwargs = driver_kwargs
 
@@ -93,7 +90,7 @@ class SeleniumBaseAsyncCDPMiddleware:
 
     async def spider_opened(self, spider):
         """Start the CDP driver when spider opens"""
-        self.driver = await self.start_async_driver(**self.driver_kwargs)
+        self.driver = await cdp_driver.start_async(**self.driver_kwargs)
 
     def spider_closed(self):
         """Shutdown the driver when spider is closed"""
