@@ -6,17 +6,19 @@ authors = [
 ]
 description = "Scrapy downloader middleware that uses SeleniumBase's pure CDP mode to make requests."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Framework :: Scrapy",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License"
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only"
 ]
 license = { text = "MIT" }
 license-files = ["LICENSE"]
 dependencies = [
+    "mycdp>=1.0",
     "scrapy>=2.0",
     "seleniumbase>=4.0",
 ]

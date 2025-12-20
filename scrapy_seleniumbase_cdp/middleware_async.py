@@ -11,11 +11,15 @@
 #
 # Doc: https://github.com/seleniumbase/SeleniumBase/blob/master/help_docs/syntax_formats.md#sb_sf_24
 #      https://github.com/seleniumbase/SeleniumBase/discussions/3955
-
+from base64 import b64decode
 from importlib import import_module
 
-from scrapy import signals
+import mycdp
+from scrapy import Request
+from scrapy import signals, Spider
 from scrapy.http import HtmlResponse
+from seleniumbase.undetected.cdp_driver import tab
+from seleniumbase.undetected.cdp_driver.browser import Browser
 
 from .request import SeleniumBaseRequest
 
@@ -34,7 +38,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         seleniumbase_cdp = import_module("seleniumbase")
         cdp_module = getattr(seleniumbase_cdp, 'cdp_driver')
         self.start_async_driver = getattr(cdp_module, "start_async")
-        self.driver = None
+        self.driver: Browser | None = None
         self.driver_kwargs = driver_kwargs
 
     @classmethod
@@ -46,19 +50,39 @@ class SeleniumBaseAsyncCDPMiddleware:
         crawler.signals.connect(middleware.spider_closed, signals.spider_closed)
         return middleware
 
-    async def process_request(self, request, spider):
-        """Process a request using the selenium driver if applicable"""
+    async def process_request(self, request: Request, spider: Spider):
+        """Process request using SeleniumBase"""
 
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
-        page = await self.driver.get(request.url)
+        page: tab.Tab = await self.driver.get(request.url)
 
+        # request to solve captcha, but in most cases it may not be necessary
+        await page.solve_captcha()
+
+        # wait until the specified element appears on the page
         if request.wait_until:
             try:
                 await page.select(request.wait_until, timeout=request.wait_time if hasattr(request, 'wait_time') else 10)
             except Exception as e:
                 spider.logger.warning(f'Element not found: {request.wait_until}, {e}')
+
+        # take a screenshot if requested
+        if request.screenshot not in (None, False):
+            try:
+                image_format = request.screenshot.get('format', 'png')
+                full_page = request.screenshot.get('full_page', True)
+
+                if request.screenshot.get('path'):
+                    path = await page.save_screenshot(request.screenshot.get('path'), image_format, full_page)
+                    spider.logger.info(f'Screenshot saved in {path}')
+                else:
+                    command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=full_page)
+                    request.meta['screenshot'] = b64decode(await page.send(command))
+                    spider.logger.info(f'Screenshot saved in response.meta["screenshot"]')
+            except Exception as e:
+                spider.logger.warning(f'Screenshot could not saved: {e}')
 
         request.meta.update({'driver': self.driver})
 
