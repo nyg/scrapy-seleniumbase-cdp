@@ -8,8 +8,8 @@
 Scrapy downloader middleware that uses [SeleniumBase][4]'s pure CDP mode to make
 requests, allowing to bypass most anti-bot protections (e.g. CloudFlare).
 
-Using Selenium's pure CDP mode also makes the middle more platform independent
-as no WebDriver is required.
+Using Selenium's pure CDP mode also makes the middleware more platform
+independent as no WebDriver is required.
 
 🚧 Work in progress, see working example [here][5]. 🚧
 
@@ -44,7 +44,8 @@ built-in `Request` like below:
 ```python
 from scrapy_seleniumbase_cdp import SeleniumBaseRequest
 
-yield SeleniumBaseRequest(url=url, callback=self.parse_result)
+async def start(self):
+    yield SeleniumBaseRequest(url=url, callback=self.parse_result)
 ```
 
 The request will be handled by SeleniumBase, and the request will have an
@@ -123,15 +124,26 @@ Available configuration keys:
 
 #### `script`
 
-**Not implemented**
-
-When used, webdriver will execute custom JavaScript code.
+When used, SeleniumBase will execute the provided JavaScript code.
 
 ```python
 yield SeleniumBaseRequest(
-    url=url,
-    callback=self.parse_result,
-    script='window.scrollTo(0, document.body.scrollHeight);')
+    # …
+    script='window.scrollTo(0, document.body.scrollHeight)')
+```
+
+If the script returns a Promise, it is possible to await its result:
+
+```python
+yield SeleniumBaseRequest(
+    # …
+    script={
+        'await_promise': True,
+        'script': '''
+            document.getElementById('onetrust-accept-btn-handler').click()
+            new Promise(resolve => setTimeout(resolve, 1000))
+        '''
+    })
 ```
 
 #### `driver_methods`
