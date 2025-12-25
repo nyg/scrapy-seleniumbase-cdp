@@ -3,8 +3,6 @@
 # Uses the async/await API of SeleniumBase because the event loop of the pure
 # CDP mode conflicts with Scrapy's own event loop.
 #
-# Based on https://github.com/Quartz-Core/scrapy-seleniumbase.
-#
 # Doc: https://github.com/seleniumbase/SeleniumBase/blob/master/help_docs/syntax_formats.md#sb_sf_24
 #      https://github.com/seleniumbase/SeleniumBase/discussions/3955
 from base64 import b64decode
@@ -55,13 +53,17 @@ class SeleniumBaseAsyncCDPMiddleware:
         await self._execute_script(page, request, spider)
         await self._take_screenshot(page, request, spider)
 
-        request.meta.update({'driver': self.driver})
+        page_url = await page.evaluate('window.location.href')
         page_source = await page.evaluate('document.documentElement.outerHTML')
+        status_code = await page.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus || 200')
+        cookies = [f'{cookie.name}={cookie.value}' for cookie in await self.driver.cookies.get_all()]
 
-        return HtmlResponse(await page.evaluate('window.location.href'),
-                            body=str.encode(page_source),
+        return HtmlResponse(url=page_url,
+                            body=page_source.encode('utf-8'),
                             encoding='utf-8',
-                            request=request)
+                            request=request,
+                            status=status_code,
+                            headers={'Cookie': '; '.join(cookies)})
 
     @staticmethod
     async def _solve_captcha(page: tab.Tab):
@@ -71,14 +73,13 @@ class SeleniumBaseAsyncCDPMiddleware:
     @staticmethod
     async def _wait_for_element(page: tab.Tab, request: SeleniumBaseRequest, spider: Spider):
         """Wait for element if requested"""
-        if not request.wait_until:
+        if not request.wait_for:
             return
 
         try:
-            timeout = request.wait_time if hasattr(request, 'wait_time') else 10
-            await page.select(request.wait_until, timeout=timeout)
+            await page.wait_for(selector=request.wait_for, timeout=getattr(request, 'wait_timeout', 10))
         except Exception as e:
-            spider.logger.warning(f'Element not found: {request.wait_until}, {e}')
+            spider.logger.warning(f'Element not found: {request.wait_for}, {e}')
 
     @staticmethod
     async def _execute_script(page: tab.Tab, request: SeleniumBaseRequest, spider: Spider):
@@ -89,7 +90,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         try:
             await_promise = request.script.get('await_promise', False)
             ret_val = await page.evaluate(request.script.get('script', ''), await_promise=await_promise)
-            spider.logger.info(f'Executed script and returned value: {ret_val}')
+            request.meta['script'] = ret_val
+            spider.logger.info(f'Executed script which returned value: {ret_val}')
         except Exception as e:
             spider.logger.warning(f'Error executing script: {e}')
 

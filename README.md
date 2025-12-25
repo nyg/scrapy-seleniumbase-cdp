@@ -28,7 +28,7 @@ pip install scrapy-seleniumbase-cdp
     }
     ```
 
-2. If needed, Driver configuration can be provided:
+2. If needed, configuration can be provided to the SeleniumBase driver:
 
    ```python
    SELENIUMBASE_DRIVER_KWARGS = {
@@ -38,8 +38,9 @@ pip install scrapy-seleniumbase-cdp
 
 ## Usage
 
-Use the `scrapy_seleniumbase_cdp.SeleniumBaseRequest` instead of the scrapy
-built-in `Request` like below:
+To have SeleniumBase handle requests, use the
+`scrapy_seleniumbase_cdp.SeleniumBaseRequest` instead of Scrapy's built-in
+`Request`:
 
 ```python
 from scrapy_seleniumbase_cdp import SeleniumBaseRequest
@@ -48,43 +49,22 @@ async def start(self):
     yield SeleniumBaseRequest(url=url, callback=self.parse_result)
 ```
 
-The request will be handled by SeleniumBase, and the request will have an
-additional `meta` key, named `driver` containing the SeleniumBase driver with
-the request processed.
-
-```python
-def parse_result(self, response):
-    print(response.request.meta['driver'].title)
-```
-
-For more information about the available driver methods and attributes, refer to
-the [selenium python documentation][1] (all vanilla selenium driver methods are
-available) and [seleniumbase documentation][2] (look for "driver" specific
-methods, located at the end of the page).
-
-The `selector` response attribute work as usual (but contains the HTML processed
-by the selenium driver).
-
-```python
-def parse_result(self, response):
-    print(response.selector.xpath('//title/@text'))
-```
-
 ### Additional arguments
 
 The `scrapy_selenium.SeleniumBaseRequest` accept 5 additional arguments:
 
-#### `wait_time` / `wait_until`
+#### `wait_for` / `wait_timeout`
 
-When used, SeleniumBase will wait for the element to be selectable before
-returning the response to the spider.
+When used, SeleniumBase will wait for the element with the given CSS selector
+to appear. The default timeout value is of 10 seconds but can be changed if
+needed.
 
 ```python
 yield SeleniumBaseRequest(
     url=url,
     callback=self.parse_result,
-    wait_time=10,
-    wait_until='h1.some-class'))
+    wait_for='h1.some-class',
+    wait_timeout=5))
 ```
 
 #### `screenshot`
@@ -146,6 +126,9 @@ yield SeleniumBaseRequest(
     })
 ```
 
+The result of the JavaScript code is added to the response meta:
+`response.meta['script']`.
+
 #### `driver_methods`
 
 **Not implemented**
@@ -164,10 +147,9 @@ def start_requests(self):
 ## License
 
 This project is licensed under the MIT License. It is a fork
-of [Quartz-Core/scrapy-seleniumbase](https://github.com/Quartz-Core/scrapy-seleniumbase)
+of [Quartz-Core/scrapy-seleniumbase][1]
 which was originally released under the WTFPL.
 
-[1]: http://selenium-python.readthedocs.io/api.html#module-selenium.webdriver.remote.webdriver
-[2]: https://seleniumbase.io/help_docs/method_summary/#seleniumbase-methods-api-reference
+[1]: https://github.com/Quartz-Core/scrapy-seleniumbase
 [4]: https://seleniumbase.io/examples/cdp_mode/ReadMe/
 [5]: https://github.com/nyg/autoscout24-trends
