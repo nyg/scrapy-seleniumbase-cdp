@@ -42,33 +42,32 @@ class SeleniumBaseRequest(Request):
     """Subclass of Scrapy ``Request`` providing additional arguments"""
 
     def __init__(self,
-                 wait_time=None,
-                 wait_until=None,
+                 wait_for: str | None = None,
+                 wait_timeout: int = 10,
                  screenshot: bool | dict | ScreenshotConfig | None = None,
                  script: str | dict | ScriptConfig | None = None,
-                 driver_methods=None,
+                 driver_methods: list[str] | None = None,
                  *args,
                  **kwargs):
-        """Initialize a new selenium request
+        """Initialize a new SeleniumBase request.
 
         Parameters
         ----------
-        wait_time: int
-            The number of seconds to wait.
-        wait_until: method
-            One of the "selenium.webdriver.support.expected_conditions". The response
-            will be returned until the given condition is fulfilled.
+        wait_for: str, optional
+            The CSS selector of an element to wait for before returning the response to the spider.
+        wait_timeout: int, optional
+            The number of seconds to wait for the specified element, defaults to 10.
         screenshot : bool or dict, optional
             Screenshot configuration. If True, uses defaults and stores data in response.meta['screenshot'].
             If dict, see ScreenshotConfig for available options.
         script : str or dict, optional
             JavaScript code to execute. If str, executes the code directly.
             If dict, see ScriptConfig for available options.
-        driver_methods: list
-            List of seleniumbase driver methods as strings to execute. (e.g., [".find_element(...).click()", ...])
+        driver_methods: list[str], optional
+            Not implemented.
         """
-        self.wait_time = wait_time
-        self.wait_until = wait_until
+        self.wait_for = wait_for
+        self.wait_timeout = wait_timeout
         self.screenshot = {} if screenshot is True else screenshot
         self.script = {'script': script, 'await_promise': False} if isinstance(script, str) else script
         self.driver_methods = driver_methods
