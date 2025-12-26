@@ -20,10 +20,9 @@ class SeleniumBaseAsyncCDPMiddleware:
     def __init__(self, browser_options: dict[str, str]):
         """Initialize the middleware.
 
-        Parameters
-        ----------
-        browser_options:
-            A dictionary of keyword arguments to initialize the SeleniumBrowser with.
+        Args:
+            browser_options (dict[str, str]): A dictionary of keyword arguments to initialize the
+                SeleniumBrowser with.
         """
         self.browser: Browser | None = None
         self.browser_options = browser_options
@@ -31,8 +30,8 @@ class SeleniumBaseAsyncCDPMiddleware:
     @classmethod
     def from_crawler(cls, crawler):
         """Initialize the middleware with the crawler settings."""
-        driver_kwargs = crawler.settings.get('SELENIUMBASE_DRIVER_KWARGS', {})
-        middleware = cls(driver_kwargs)
+        browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
+        middleware = cls(browser_options)
         crawler.signals.connect(middleware.spider_opened, signals.spider_opened)
         crawler.signals.connect(middleware.spider_closed, signals.spider_closed)
         return middleware
@@ -43,8 +42,8 @@ class SeleniumBaseAsyncCDPMiddleware:
             return None
 
         tab: Tab = await self.browser.get(request.url)
+        await tab.solve_captcha()
 
-        await self._solve_captcha(tab)
         await self._wait_for_element(tab, request, spider)
         await self._execute_callback(request, spider)
         await self._execute_script(tab, request, spider)
@@ -61,11 +60,6 @@ class SeleniumBaseAsyncCDPMiddleware:
                             request=request,
                             status=status_code,
                             headers={'Cookie': '; '.join(cookies)})
-
-    @staticmethod
-    async def _solve_captcha(tab: Tab):
-        """Solve captcha if needed."""
-        await tab.solve_captcha()
 
     @staticmethod
     async def _wait_for_element(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
