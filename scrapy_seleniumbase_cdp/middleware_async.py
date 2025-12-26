@@ -12,8 +12,8 @@ from scrapy import Request
 from scrapy import signals, Spider
 from scrapy.http import HtmlResponse
 from seleniumbase.undetected import cdp_driver
-from seleniumbase.undetected.cdp_driver import tab
 from seleniumbase.undetected.cdp_driver.browser import Browser
+from seleniumbase.undetected.cdp_driver.tab import Tab
 
 from .request import SeleniumBaseRequest
 
@@ -46,19 +46,20 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
-        page: tab.Tab = await self.driver.get(request.url)
+        tab: Tab = await self.driver.get(request.url)
 
-        await self._solve_captcha(page)
-        await self._wait_for_element(page, request, spider)
-        await self._execute_script(page, request, spider)
-        await self._take_screenshot(page, request, spider)
+        await self._solve_captcha(tab)
+        await self._wait_for_element(tab, request, spider)
+        await self._execute_callback(request, spider)
+        await self._execute_script(tab, request, spider)
+        await self._take_screenshot(tab, request, spider)
 
-        page_url = await page.evaluate('window.location.href')
-        page_source = await page.evaluate('document.documentElement.outerHTML')
-        status_code = await page.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus || 200')
+        tab_url = await tab.evaluate('window.location.href')
+        page_source = await tab.evaluate('document.documentElement.outerHTML')
+        status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus || 200')
         cookies = [f'{cookie.name}={cookie.value}' for cookie in await self.driver.cookies.get_all()]
 
-        return HtmlResponse(url=page_url,
+        return HtmlResponse(url=tab_url,
                             body=page_source.encode('utf-8'),
                             encoding='utf-8',
                             request=request,
@@ -66,37 +67,44 @@ class SeleniumBaseAsyncCDPMiddleware:
                             headers={'Cookie': '; '.join(cookies)})
 
     @staticmethod
-    async def _solve_captcha(page: tab.Tab):
+    async def _solve_captcha(tab: Tab):
         """Solve captcha if needed"""
-        await page.solve_captcha()
+        await tab.solve_captcha()
 
     @staticmethod
-    async def _wait_for_element(page: tab.Tab, request: SeleniumBaseRequest, spider: Spider):
+    async def _wait_for_element(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
         """Wait for element if requested"""
         if not request.wait_for:
             return
 
         try:
-            await page.wait_for(selector=request.wait_for, timeout=getattr(request, 'wait_timeout', 10))
+            await tab.wait_for(selector=request.wait_for, timeout=getattr(request, 'wait_timeout', 10))
         except Exception as e:
             spider.logger.warning(f'Element not found: {request.wait_for}, {e}')
 
+    async def _execute_callback(self, request: SeleniumBaseRequest, spider: Spider):
+        if not request.browser_callback:
+            return
+
+        try:
+            request.meta['callback'] = await request.browser_callback(self.driver)
+        except Exception as e:
+            spider.logger.warning(f'Error executing browser callback: {e}')
+
     @staticmethod
-    async def _execute_script(page: tab.Tab, request: SeleniumBaseRequest, spider: Spider):
+    async def _execute_script(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
         """Execute JavaScript if requested"""
         if not request.script:
             return
 
         try:
-            await_promise = request.script.get('await_promise', False)
-            ret_val = await page.evaluate(request.script.get('script', ''), await_promise=await_promise)
-            request.meta['script'] = ret_val
-            spider.logger.info(f'Executed script which returned value: {ret_val}')
+            request.meta['script'] = await tab.evaluate(request.script.get('script', ''),
+                                                        await_promise=request.script.get('await_promise', False))
         except Exception as e:
             spider.logger.warning(f'Error executing script: {e}')
 
     @staticmethod
-    async def _take_screenshot(page: tab.Tab, request: SeleniumBaseRequest, spider: Spider):
+    async def _take_screenshot(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
         """Take screenshot if requested"""
         if request.screenshot in (None, False):
             return
@@ -106,12 +114,12 @@ class SeleniumBaseAsyncCDPMiddleware:
             full_page = request.screenshot.get('full_page', True)
 
             if request.screenshot.get('path'):
-                path = await page.save_screenshot(request.screenshot.get('path'), image_format, full_page)
+                path = await tab.save_screenshot(request.screenshot.get('path'), image_format, full_page)
                 spider.logger.info(f'Screenshot saved in {path}')
             else:
                 command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=full_page)
-                request.meta['screenshot'] = b64decode(await page.send(command))
-                spider.logger.info(f'Screenshot saved in response.meta["screenshot"]')
+                request.meta['screenshot'] = b64decode(await tab.send(command))
+                spider.logger.info('Screenshot saved in response.meta["screenshot"]')
         except Exception as e:
             spider.logger.warning(f'Screenshot could not be saved: {e}')
 

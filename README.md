@@ -11,8 +11,6 @@ requests, allowing to bypass most anti-bot protections (e.g. CloudFlare).
 Using Selenium's pure CDP mode also makes the middleware more platform
 independent as no WebDriver is required.
 
-🚧 Work in progress, see working example [here][5]. 🚧
-
 ## Installation
 
 ```
@@ -67,40 +65,19 @@ yield SeleniumBaseRequest(
     wait_timeout=5))
 ```
 
-#### `screenshot`
+#### `browser_callback`
 
-When used, SeleniumBase will take a screenshot of the page and the binary data
-will be added to the response `meta`:
-
-```python
-yield SeleniumBaseRequest(url=url, callback=self.parse_result, screenshot=True)
-
-
-def parse_result(self, response):
-    # …
-    with open('image.png', 'wb') as image_file:
-        image_file.write(response.meta['screenshot'])
-```
-
-You can also specify additional configuration options:
+If needed, it is possible to provide a callback to interact with the browser
+instance and/or its tabs. The return value of the async callback is stored in
+`response.meta['callback']`. 
 
 ```python
-yield SeleniumBaseRequest(…, screenshot={'format': 'jpg', 'full_page': False})
+async def start(self):
+    async def maximize_window(browser: Browser):
+        await browser.main_tab.maximize()
+
+    yield SeleniumRequest(…, browser_callback=maximize_window)
 ```
-
-Or provide a path to automatically save the screenshot (in this case, the image
-data is **not** added to the response `meta`):
-
-```python
-yield SeleniumBaseRequest(…, screenshot={'path': 'output/image.png'})
-```
-
-Available configuration keys:
-
-- `path`: File path where screenshot will be saved. Use `auto` for
-  SeleniumBase default path. Leave empty to return data in response `meta`.
-- `format`: Image format, defaults to `png`, `jpg` also available. 
-- `full_page`: Capture full page or just viewport, defaults to `True`.
 
 #### `script`
 
@@ -126,23 +103,42 @@ yield SeleniumBaseRequest(
     })
 ```
 
-The result of the JavaScript code is added to the response meta:
-`response.meta['script']`.
+The result of the JavaScript code is stored in `response.meta['script']`.
 
-#### `driver_methods`
+#### `screenshot`
 
-**Not implemented**
-
-When used, seleniumbase webdriver will execute methods, provided as strings in a
-list, before returning page's HTML.
+When used, SeleniumBase will take a screenshot of the page and the binary data
+will be stored in `response.meta['screenshot']`:
 
 ```python
-def start_requests(self):
-    for url in self.start_urls:
-        yield SeleniumRequest(
-            url=url,
-            driver_methods=['''.find_element("xpath","some_xpath").click()''']))
+yield SeleniumBaseRequest(url=url, callback=self.parse_result, screenshot=True)
+
+
+def parse_result(self, response):
+    # …
+    with open('image.png', 'wb') as image_file:
+        image_file.write(response.meta['screenshot'])
 ```
+
+You can also specify additional configuration options:
+
+```python
+yield SeleniumBaseRequest(…, screenshot={'format': 'jpg', 'full_page': False})
+```
+
+Or provide a path to automatically save the screenshot (in this case, the image
+data is **not** stored in the response):
+
+```python
+yield SeleniumBaseRequest(…, screenshot={'path': 'output/image.png'})
+```
+
+Available configuration keys:
+
+- `path`: File path where screenshot will be saved. Use `auto` for
+  SeleniumBase default path. Leave empty to return data in response `meta`.
+- `format`: Image format, defaults to `png`, `jpg` also available.
+- `full_page`: Capture full page or just viewport, defaults to `True`.
 
 ## License
 
