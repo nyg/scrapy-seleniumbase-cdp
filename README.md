@@ -49,7 +49,8 @@ async def start(self):
 
 ### Additional arguments
 
-The `scrapy_selenium.SeleniumBaseRequest` accept 5 additional arguments:
+The `scrapy_seleniumbase_cdp.SeleniumBaseRequest` accept five additional
+arguments. They are executed in the order presented below:
 
 #### `wait_for` / `wait_timeout`
 

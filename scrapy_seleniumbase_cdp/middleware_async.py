@@ -1,10 +1,3 @@
-# SeleniumBase middleware using the pure CDP mode instead of the UC mode.
-#
-# Uses the async/await API of SeleniumBase because the event loop of the pure
-# CDP mode conflicts with Scrapy's own event loop.
-#
-# Doc: https://github.com/seleniumbase/SeleniumBase/blob/master/help_docs/syntax_formats.md#sb_sf_24
-#      https://github.com/seleniumbase/SeleniumBase/discussions/3955
 from base64 import b64decode
 
 import mycdp
@@ -19,22 +12,25 @@ from .request import SeleniumBaseRequest
 
 
 class SeleniumBaseAsyncCDPMiddleware:
-    """Scrapy middleware handling the requests using SeleniumBase"""
+    """
+    Scrapy downloader middleware handling the requests using SeleniumBase pure CDP mode instead of the UC mode.
+    Uses SeleniumBase's async/await API because the event loop of the pure CDP mode conflicts with Scrapy's own event loop.
+    """
 
-    def __init__(self, driver_kwargs):
-        """Initialize the selenium webdriver
+    def __init__(self, browser_options: dict[str, str]):
+        """Initialize the middleware.
 
         Parameters
         ----------
-        driver_kwargs: dict
-            A dictionary of keyword arguments to initialize the driver with.
+        browser_options:
+            A dictionary of keyword arguments to initialize the SeleniumBrowser with.
         """
-        self.driver: Browser | None = None
-        self.driver_kwargs = driver_kwargs
+        self.browser: Browser | None = None
+        self.browser_options = browser_options
 
     @classmethod
     def from_crawler(cls, crawler):
-        """Initialize the middleware with the crawler settings"""
+        """Initialize the middleware with the crawler settings."""
         driver_kwargs = crawler.settings.get('SELENIUMBASE_DRIVER_KWARGS', {})
         middleware = cls(driver_kwargs)
         crawler.signals.connect(middleware.spider_opened, signals.spider_opened)
@@ -42,11 +38,11 @@ class SeleniumBaseAsyncCDPMiddleware:
         return middleware
 
     async def process_request(self, request: Request, spider: Spider):
-        """Process request using SeleniumBase"""
+        """Process request using SeleniumBase."""
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
-        tab: Tab = await self.driver.get(request.url)
+        tab: Tab = await self.browser.get(request.url)
 
         await self._solve_captcha(tab)
         await self._wait_for_element(tab, request, spider)
@@ -57,7 +53,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         tab_url = await tab.evaluate('window.location.href')
         page_source = await tab.evaluate('document.documentElement.outerHTML')
         status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus || 200')
-        cookies = [f'{cookie.name}={cookie.value}' for cookie in await self.driver.cookies.get_all()]
+        cookies = [f'{c.name}={c.value}' for c in await self.browser.cookies.get_all()]
 
         return HtmlResponse(url=tab_url,
                             body=page_source.encode('utf-8'),
@@ -68,12 +64,12 @@ class SeleniumBaseAsyncCDPMiddleware:
 
     @staticmethod
     async def _solve_captcha(tab: Tab):
-        """Solve captcha if needed"""
+        """Solve captcha if needed."""
         await tab.solve_captcha()
 
     @staticmethod
     async def _wait_for_element(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
-        """Wait for element if requested"""
+        """Wait for the specified element if requested."""
         if not request.wait_for:
             return
 
@@ -83,17 +79,18 @@ class SeleniumBaseAsyncCDPMiddleware:
             spider.logger.warning(f'Element not found: {request.wait_for}, {e}')
 
     async def _execute_callback(self, request: SeleniumBaseRequest, spider: Spider):
+        """Execute the browser callback method if requested."""
         if not request.browser_callback:
             return
 
         try:
-            request.meta['callback'] = await request.browser_callback(self.driver)
+            request.meta['callback'] = await request.browser_callback(self.browser)
         except Exception as e:
             spider.logger.warning(f'Error executing browser callback: {e}')
 
     @staticmethod
     async def _execute_script(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
-        """Execute JavaScript if requested"""
+        """Execute the JavaScript code if requested."""
         if not request.script:
             return
 
@@ -105,7 +102,7 @@ class SeleniumBaseAsyncCDPMiddleware:
 
     @staticmethod
     async def _take_screenshot(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
-        """Take screenshot if requested"""
+        """Take a screenshot if requested."""
         if request.screenshot in (None, False):
             return
 
@@ -124,9 +121,9 @@ class SeleniumBaseAsyncCDPMiddleware:
             spider.logger.warning(f'Screenshot could not be saved: {e}')
 
     async def spider_opened(self, spider):
-        """Start the CDP driver when spider opens"""
-        self.driver = await cdp_driver.start_async(**self.driver_kwargs)
+        """Start the CDP browser when the spider opens."""
+        self.browser = await cdp_driver.start_async(**self.browser_options)
 
     def spider_closed(self):
-        """Shutdown the driver when spider is closed"""
-        self.driver.stop()
+        """Stop the browser when the spider closes."""
+        self.browser.stop()
