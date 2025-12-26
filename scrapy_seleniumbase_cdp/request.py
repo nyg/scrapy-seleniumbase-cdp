@@ -1,8 +1,8 @@
-"""This module contains the ``SeleniumBaseRequest`` class"""
 from pathlib import Path
-from typing import TypedDict, NotRequired
+from typing import TypedDict, NotRequired, Callable, Awaitable, Any
 
 from scrapy import Request
+from seleniumbase.undetected.cdp_driver.browser import Browser
 
 
 class ScreenshotConfig(TypedDict, total=False):
@@ -44,9 +44,9 @@ class SeleniumBaseRequest(Request):
     def __init__(self,
                  wait_for: str | None = None,
                  wait_timeout: int = 10,
-                 screenshot: bool | dict | ScreenshotConfig | None = None,
+                 browser_callback: Callable[[Browser], Awaitable[Any]] | None = None,
                  script: str | dict | ScriptConfig | None = None,
-                 driver_methods: list[str] | None = None,
+                 screenshot: bool | dict | ScreenshotConfig | None = None,
                  *args,
                  **kwargs):
         """Initialize a new SeleniumBase request.
@@ -57,18 +57,20 @@ class SeleniumBaseRequest(Request):
             The CSS selector of an element to wait for before returning the response to the spider.
         wait_timeout: int, optional
             The number of seconds to wait for the specified element, defaults to 10.
-        screenshot : bool or dict, optional
-            Screenshot configuration. If True, uses defaults and stores data in response.meta['screenshot'].
-            If dict, see ScreenshotConfig for available options.
+        browser_callback: callable, optional
+            An async callback that allows interaction with the browser and/or its tabs.
+            The callback result is stored in ``response.meta['callback']``.
         script : str or dict, optional
             JavaScript code to execute. If str, executes the code directly.
             If dict, see ScriptConfig for available options.
-        driver_methods: list[str], optional
-            Not implemented.
+            The script result is stored in ``response.meta['script']``.
+        screenshot : bool or dict, optional
+            Screenshot configuration. If True, uses defaults and stores data in ``response.meta['screenshot']``.
+            If dict, see ScreenshotConfig for available options.
         """
         self.wait_for = wait_for
         self.wait_timeout = wait_timeout
         self.screenshot = {} if screenshot is True else screenshot
         self.script = {'script': script, 'await_promise': False} if isinstance(script, str) else script
-        self.driver_methods = driver_methods
+        self.browser_callback = browser_callback
         super().__init__(*args, **kwargs)
