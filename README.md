@@ -108,7 +108,7 @@ The result of the JavaScript code is stored in `response.meta['script']`.
 #### `screenshot`
 
 When used, SeleniumBase will take a screenshot of the page and the binary data
-will be added to the response `meta`:
+will be stored in `response.meta['screenshot']`:
 
 ```python
 yield SeleniumBaseRequest(url=url, callback=self.parse_result, screenshot=True)
