@@ -68,7 +68,7 @@ class SeleniumBaseRequest(Request):
         match script:
             case str():
                 self.script = {'script': script, 'await_promise': False}
-            case ScriptConfig():
+            case {"script": str()}:
                 self.script = script
             case None:
                 self.script = None
@@ -80,7 +80,7 @@ class SeleniumBaseRequest(Request):
                 self.screenshot = {}
             case False | None:
                 self.screenshot = None
-            case ScreenshotConfig():
+            case dict():
                 self.screenshot = screenshot
             case _:
                 raise TypeError(f"Invalid screenshot type: {type(screenshot)}")
