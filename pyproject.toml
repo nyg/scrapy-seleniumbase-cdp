@@ -5,6 +5,7 @@ authors = [
     { name = "nyg" },
 ]
 description = "Scrapy downloader middleware that uses SeleniumBase's pure CDP mode to make requests."
+keywords = ["scrapy", "seleniumbase", "cdp", "chrome-devtools-protocol", "web-scraping", "crawler", "middleware"]
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [

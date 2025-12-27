@@ -26,10 +26,10 @@ pip install scrapy-seleniumbase-cdp
     }
     ```
 
-2. If needed, configuration can be provided to the SeleniumBase driver:
+2. If needed, configuration can be provided to the SeleniumBase browser instance:
 
    ```python
-   SELENIUMBASE_DRIVER_KWARGS = {
+   SELENIUMBASE_BROWSER_OPTIONS = {
        # …
    }
    ```
@@ -49,7 +49,8 @@ async def start(self):
 
 ### Additional arguments
 
-The `scrapy_selenium.SeleniumBaseRequest` accept 5 additional arguments:
+The `scrapy_seleniumbase_cdp.SeleniumBaseRequest` accepts five additional
+arguments. They are executed in the order presented below:
 
 #### `wait_for` / `wait_timeout`
 
@@ -76,7 +77,7 @@ async def start(self):
     async def maximize_window(browser: Browser):
         await browser.main_tab.maximize()
 
-    yield SeleniumRequest(…, browser_callback=maximize_window)
+    yield SeleniumBaseRequest(…, browser_callback=maximize_window)
 ```
 
 #### `script`
