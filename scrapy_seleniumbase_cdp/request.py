@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TypedDict, NotRequired, Callable, Awaitable, Any
+from typing import Any, Awaitable, Callable, NotRequired, TypedDict
 
 from scrapy import Request
 from seleniumbase.undetected.cdp_driver.browser import Browser
@@ -76,12 +76,12 @@ class SeleniumBaseRequest(Request):
                 raise TypeError(f"Invalid script type: {type(script)}")
 
         match screenshot:
-            case True:
-                self.screenshot = {}
-            case False | None:
-                self.screenshot = None
+            case True | {}:
+                self.screenshot = {'format': 'png', 'full_page': True}
             case dict():
                 self.screenshot = screenshot
+            case False | None:
+                self.screenshot = None
             case _:
                 raise TypeError(f"Invalid screenshot type: {type(screenshot)}")
 
