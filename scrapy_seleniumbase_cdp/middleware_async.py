@@ -54,7 +54,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         crawler.signals.connect(middleware.spider_closed, signals.spider_closed)
         return middleware
 
-    async def process_request(self, request: Request):
+    async def process_request(self, request: Request, spider: Spider):
         """Process request using SeleniumBase."""
         if not isinstance(request, SeleniumBaseRequest):
             return None
@@ -64,16 +64,16 @@ class SeleniumBaseAsyncCDPMiddleware:
         status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
 
         if 200 <= status_code < 300:
-            await self._wait_for_element(tab, request)
-            await self._execute_callback(request, self.crawler.spider)
-            await self._execute_script(tab, request, self.crawler.spider)
+            await self._wait_for_element(tab, request, spider)
+            await self._execute_callback(request, spider)
+            await self._execute_script(tab, request, spider)
         else:
-            self.crawler.spider.logger.warning(f'Received {status_code} for {request.url}')
+            spider.logger.warning(f'Received {status_code} for {request.url}')
             if status_code == 429:
-                self.crawler.spider.logger.warning(f'Backing off for {self.backoff_on_429} seconds')
+                spider.logger.warning(f'Backing off for {self.backoff_on_429} seconds')
                 await asyncio.sleep(self.backoff_on_429)
 
-        await self._take_screenshot(tab, request, self.crawler.spider)
+        await self._take_screenshot(tab, request, spider)
         return await self._build_response(tab, request, status_code)
 
     async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
@@ -89,7 +89,7 @@ class SeleniumBaseAsyncCDPMiddleware:
                             status=status_code,
                             headers={'Cookie': '; '.join(cookies)})
 
-    async def _wait_for_element(self, tab: Tab, request: SeleniumBaseRequest):
+    async def _wait_for_element(self, tab: Tab, request: SeleniumBaseRequest, spider: Spider):
         """Wait for the specified element if requested.
 
         Raises:
@@ -101,9 +101,16 @@ class SeleniumBaseAsyncCDPMiddleware:
         try:
             await tab.wait_for(selector=request.wait_for, timeout=request.wait_timeout)
         except asyncio.TimeoutError:
-            self.crawler.spider.logger.error(f'Timed out waiting for element "{request.wait_for}" on {request.url}')
-            await self._take_screenshot(tab, request, self.crawler.spider)
+            spider.logger.error(f'Timed out waiting for element "{request.wait_for}" on {request.url}')
+            await self._take_debug_screenshot(tab, spider)
             raise IgnoreRequest(f'Element "{request.wait_for}" not found within {request.wait_timeout} seconds')
+
+    @staticmethod
+    @handle_errors("Error taking debug screenshot")
+    async def _take_debug_screenshot(tab: Tab, spider: Spider):
+        """Take a full-page debug screenshot using SeleniumBase's default path."""
+        path = await tab.save_screenshot('auto', 'png', True)
+        spider.logger.info(f'Debug screenshot saved in {path}')
 
     @handle_errors("Error executing browser callback")
     async def _execute_callback(self, request: SeleniumBaseRequest, spider: Spider):

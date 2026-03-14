@@ -64,7 +64,8 @@ arguments. They are executed in the order presented below:
 When used, SeleniumBase will wait for the element with the given CSS selector
 to appear. The default timeout value is of 10 seconds but can be changed if
 needed. If the element is not found within the timeout, the request is skipped
-(Scrapy's `IgnoreRequest` is raised) and a screenshot is taken if configured.
+(Scrapy's `IgnoreRequest` is raised) and a full-page debug screenshot is saved
+using SeleniumBase's default path.
 
 ```python
 yield SeleniumBaseRequest(
@@ -161,8 +162,9 @@ The middleware checks the HTTP status code right after loading the page:
   gives the target server time to recover. Ensure `429` is in your
   `RETRY_HTTP_CODES` Scrapy setting for automatic retries.
 - **`wait_for` timeout**: if the expected element is not found within
-  `wait_timeout` seconds, a debug screenshot is taken and `IgnoreRequest` is
-  raised, causing Scrapy to skip the request.
+  `wait_timeout` seconds, a full-page debug screenshot is saved using
+  SeleniumBase's default path and `IgnoreRequest` is raised, causing Scrapy to
+  skip the request.
 
 ## License
 
