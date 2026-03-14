@@ -1,6 +1,7 @@
 import asyncio
 from base64 import b64decode
 from functools import wraps
+from typing import Self
 
 import mycdp
 from scrapy import Request, signals
@@ -32,7 +33,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         self.backoff_on_429 = crawler.settings.getint('SELENIUMBASE_BACKOFF_ON_429', 60)
 
     @classmethod
-    def from_crawler(cls, crawler: Crawler):
+    def from_crawler(cls, crawler: Crawler) -> Self:
         """Initialize the middleware with the crawler settings."""
         middleware = cls(crawler)
         crawler.signals.connect(middleware.spider_opened, signals.spider_opened)
@@ -66,8 +67,11 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         if 200 <= status_code < 300:
             await self._wait_for_element(tab, request)
-            await self._execute_callback(request)
-            await self._execute_script(tab, request)
+            # Both methods are wrapped by @_handle_errors which catches all exceptions,
+            # so no exception can escape to the TaskGroup.
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(self._execute_callback(request))
+                tg.create_task(self._execute_script(tab, request))
         else:
             self.crawler.spider.logger.warning(f'Received {status_code} for {request.url}')
             if status_code == 429:
