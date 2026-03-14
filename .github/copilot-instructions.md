@@ -37,7 +37,7 @@ The package exposes two public symbols (re-exported from `__init__.py`):
   - **Early status code check**: after `browser.get()` + `solve_captcha()`, the HTTP status is read via the Performance API. On non-2xx, `_wait_for_element`, `_execute_callback`, and `_execute_script` are skipped entirely. A 429 additionally triggers a backoff sleep before returning.
   - **`_wait_for_element` timeout**: raises `IgnoreRequest` (after taking a debug screenshot), which causes Scrapy to skip the request.
   - Per-request results are stored in `response.meta`: `'callback'`, `'script'`, `'screenshot'`.
-  - Errors in `_execute_callback`, `_execute_script`, and `_take_screenshot` are caught by the `@handle_errors` decorator and logged — they do **not** abort the request.
+  - Errors in `_execute_callback`, `_execute_script`, and `_take_screenshot` are caught by the `@_handle_errors` decorator (a `@staticmethod` on the class that accesses the spider via `self.crawler.spider`) and logged — they do **not** abort the request.
 
 ## Key Conventions
 
