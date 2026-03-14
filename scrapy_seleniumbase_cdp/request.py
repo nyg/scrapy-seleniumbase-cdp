@@ -76,7 +76,7 @@ class SeleniumBaseRequest(Request):
                 raise TypeError(f"Invalid script type: {type(script)}")
 
         match screenshot:
-            case True | {}:
+            case True:
                 self.screenshot = {'format': 'png', 'full_page': True}
             case dict():
                 self.screenshot = screenshot
