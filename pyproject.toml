@@ -19,9 +19,9 @@ classifiers = [
 license = { text = "MIT" }
 license-files = ["LICENSE"]
 dependencies = [
-    "mycdp>=1.0",
-    "scrapy>=2.0",
-    "seleniumbase>=4.0",
+    "mycdp==1.3.5",
+    "scrapy==2.14.2",
+    "seleniumbase==4.47.3",
 ]
 
 [project.urls]
