@@ -134,11 +134,11 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         if request.screenshot.get('path'):
             path = await tab.save_screenshot(request.screenshot.get('path'), image_format, full_page)
-            self.crawler.spider.logger.info(f'Screenshot saved in {path}')
+            self.crawler.spider.logger.debug(f'Screenshot saved in {path}')
         else:
             command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=full_page)
             request.meta['screenshot'] = b64decode(await tab.send(command))
-            self.crawler.spider.logger.info('Screenshot saved in response.meta["screenshot"]')
+            self.crawler.spider.logger.debug('Screenshot saved in response.meta["screenshot"]')
 
     @_handle_errors("Error taking debug screenshot")
     async def _take_debug_screenshot(self, tab: Tab):
