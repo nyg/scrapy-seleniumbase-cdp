@@ -1,10 +1,11 @@
+import asyncio
 from base64 import b64decode
 from functools import wraps
-from typing import Any
 
 import mycdp
 from scrapy import Request, Spider, signals
 from scrapy.crawler import Crawler
+from scrapy.exceptions import IgnoreRequest
 from scrapy.http import HtmlResponse
 from seleniumbase.undetected import cdp_driver
 from seleniumbase.undetected.cdp_driver.browser import Browser
@@ -34,40 +35,51 @@ class SeleniumBaseAsyncCDPMiddleware:
     Uses SeleniumBase's async/await API because the event loop of the pure CDP mode conflicts with Scrapy's own event loop.
     """
 
-    def __init__(self, browser_options: dict[str, Any]):
+    def __init__(self, crawler: Crawler):
         """Initialize the middleware.
 
         Args:
-            browser_options (dict[str, Any]): A dictionary of keyword arguments to initialize the
-                SeleniumBrowser with.
+            crawler (Crawler): The Scrapy crawler instance.
         """
+        self.crawler = crawler
         self.browser: Browser | None = None
-        self.browser_options = browser_options
+        self.browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
+        self.backoff_on_429 = crawler.settings.getint('SELENIUMBASE_BACKOFF_ON_429', 60)
 
     @classmethod
     def from_crawler(cls, crawler: Crawler):
         """Initialize the middleware with the crawler settings."""
-        middleware = cls(crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {}))
+        middleware = cls(crawler)
         crawler.signals.connect(middleware.spider_opened, signals.spider_opened)
         crawler.signals.connect(middleware.spider_closed, signals.spider_closed)
         return middleware
 
-    async def process_request(self, request: Request, spider: Spider):
+    async def process_request(self, request: Request):
         """Process request using SeleniumBase."""
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
         tab: Tab = await self.browser.get(request.url)
         await tab.solve_captcha()
+        status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
 
-        await self._wait_for_element(tab, request, spider)
-        await self._execute_callback(request, spider)
-        await self._execute_script(tab, request, spider)
-        await self._take_screenshot(tab, request, spider)
+        if 200 <= status_code < 300:
+            await self._wait_for_element(tab, request)
+            await self._execute_callback(request, self.crawler.spider)
+            await self._execute_script(tab, request, self.crawler.spider)
+        else:
+            self.crawler.spider.logger.warning(f'Received {status_code} for {request.url}')
+            if status_code == 429:
+                self.crawler.spider.logger.warning(f'Backing off for {self.backoff_on_429} seconds')
+                await asyncio.sleep(self.backoff_on_429)
 
+        await self._take_screenshot(tab, request, self.crawler.spider)
+        return await self._build_response(tab, request, status_code)
+
+    async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
+        """Build an HtmlResponse from the current tab state."""
         tab_url = await tab.evaluate('window.location.href')
         page_source = await tab.evaluate('document.documentElement.outerHTML')
-        status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus || 200')
         cookies = [f'{c.name}={c.value}' for c in await self.browser.cookies.get_all()]
 
         return HtmlResponse(url=tab_url,
@@ -77,14 +89,21 @@ class SeleniumBaseAsyncCDPMiddleware:
                             status=status_code,
                             headers={'Cookie': '; '.join(cookies)})
 
-    @staticmethod
-    @handle_errors("Error waiting for element")
-    async def _wait_for_element(tab: Tab, request: SeleniumBaseRequest, spider: Spider):
-        """Wait for the specified element if requested."""
+    async def _wait_for_element(self, tab: Tab, request: SeleniumBaseRequest):
+        """Wait for the specified element if requested.
+
+        Raises:
+            IgnoreRequest: If the element is not found within the timeout.
+        """
         if not request.wait_for:
             return
 
-        await tab.wait_for(selector=request.wait_for, timeout=request.wait_timeout)
+        try:
+            await tab.wait_for(selector=request.wait_for, timeout=request.wait_timeout)
+        except asyncio.TimeoutError:
+            self.crawler.spider.logger.error(f'Timed out waiting for element "{request.wait_for}" on {request.url}')
+            await self._take_screenshot(tab, request, self.crawler.spider)
+            raise IgnoreRequest(f'Element "{request.wait_for}" not found within {request.wait_timeout} seconds')
 
     @handle_errors("Error executing browser callback")
     async def _execute_callback(self, request: SeleniumBaseRequest, spider: Spider):
