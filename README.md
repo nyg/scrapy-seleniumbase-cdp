@@ -34,6 +34,13 @@ pip install scrapy-seleniumbase-cdp
    }
    ```
 
+3. Optionally, configure the backoff delay (in seconds) applied when a 429
+   response is received. The default value is 60 seconds:
+
+   ```python
+   SELENIUMBASE_BACKOFF_ON_429 = 60
+   ```
+
 ## Usage
 
 To have SeleniumBase handle requests, use the
@@ -56,7 +63,8 @@ arguments. They are executed in the order presented below:
 
 When used, SeleniumBase will wait for the element with the given CSS selector
 to appear. The default timeout value is of 10 seconds but can be changed if
-needed.
+needed. If the element is not found within the timeout, the request is skipped
+(Scrapy's `IgnoreRequest` is raised) and a screenshot is taken if configured.
 
 ```python
 yield SeleniumBaseRequest(
@@ -140,6 +148,21 @@ Available configuration keys:
   SeleniumBase default path. Leave empty to return data in response `meta`.
 - `format`: Image format, defaults to `png`, `jpg` also available.
 - `full_page`: Capture full page or just viewport, defaults to `True`.
+
+## Error handling
+
+The middleware checks the HTTP status code right after loading the page:
+
+- **Non-2xx responses**: `wait_for`, `browser_callback`, and
+  `script` are skipped. A screenshot is still taken if configured. The response
+  is returned with the real status code.
+- **429 (Too Many Requests)**: in addition to the above, the middleware sleeps
+  for `SELENIUMBASE_BACKOFF_ON_429` seconds (default 60) before returning. This
+  gives the target server time to recover. Ensure `429` is in your
+  `RETRY_HTTP_CODES` Scrapy setting for automatic retries.
+- **`wait_for` timeout**: if the expected element is not found within
+  `wait_timeout` seconds, a debug screenshot is taken and `IgnoreRequest` is
+  raised, causing Scrapy to skip the request.
 
 ## License
 
