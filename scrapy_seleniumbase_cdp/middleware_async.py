@@ -61,8 +61,17 @@ class SeleniumBaseAsyncCDPMiddleware:
             return None
 
         tab: Tab = await self.browser.get(request.url)
-        await tab.solve_captcha()
-        status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
+        status_code = await self._get_status_code(tab)
+
+        if not (200 <= status_code < 300):
+            nav_event = self._register_navigation_handler(tab)
+            try:
+                captcha_solved = await tab.solve_captcha()
+                if captcha_solved:
+                    await self._wait_for_navigation(tab, nav_event)
+                    status_code = await self._get_status_code(tab)
+            finally:
+                self._remove_navigation_handler(tab)
 
         if 200 <= status_code < 300:
             await self._wait_for_element(tab, request)
@@ -76,6 +85,41 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         await self._take_screenshot(tab, request)
         return await self._build_response(tab, request, status_code)
+
+    @staticmethod
+    async def _get_status_code(tab: Tab) -> int:
+        """Read the HTTP status code from the Navigation Timing API."""
+        return await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
+
+    def _register_navigation_handler(self, tab: Tab) -> asyncio.Event:
+        """Register a CDP handler that signals when a top-level frame navigation occurs."""
+        nav_event = asyncio.Event()
+
+        def on_frame_navigated(event: mycdp.page.FrameNavigated):
+            if not event.frame.parent_id:
+                nav_event.set()
+
+        tab.add_handler(mycdp.page.FrameNavigated, on_frame_navigated)
+        self._nav_handler = on_frame_navigated
+        return nav_event
+
+    def _remove_navigation_handler(self, tab: Tab):
+        """Remove the previously registered navigation handler."""
+        handler = getattr(self, '_nav_handler', None)
+        if handler and handler in tab.handlers.get(mycdp.page.FrameNavigated, []):
+            tab.handlers[mycdp.page.FrameNavigated].remove(handler)
+        self._nav_handler = None
+
+    async def _wait_for_navigation(self, tab: Tab, nav_event: asyncio.Event, timeout: float = 15):
+        """Wait for a full-page navigation to complete after captcha solving."""
+        try:
+            await asyncio.wait_for(nav_event.wait(), timeout=timeout)
+            await tab.evaluate(
+                'new Promise(r => document.readyState === "complete" ? r() : addEventListener("load", r))',
+                await_promise=True,
+            )
+        except asyncio.TimeoutError:
+            self.crawler.spider.logger.debug('No post-captcha navigation detected within timeout')
 
     async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
         """Build an HtmlResponse from the current tab state."""
