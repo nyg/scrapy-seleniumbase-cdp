@@ -1,4 +1,3 @@
-import asyncio
 from base64 import b64decode
 from functools import wraps
 
@@ -29,7 +28,6 @@ class SeleniumBaseAsyncCDPMiddleware:
         self.crawler = crawler
         self.browser: Browser | None = None
         self.browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
-        self.backoff_on_429 = crawler.settings.getint('SELENIUMBASE_BACKOFF_ON_429', 60)
 
     @classmethod
     def from_crawler(cls, crawler: Crawler):
@@ -70,9 +68,6 @@ class SeleniumBaseAsyncCDPMiddleware:
             await self._execute_script(tab, request)
         else:
             self.crawler.spider.logger.warning(f'Received {status_code} for {request.url}')
-            if status_code == 429:
-                self.crawler.spider.logger.warning(f'Backing off for {self.backoff_on_429} seconds')
-                await asyncio.sleep(self.backoff_on_429)
 
         await self._take_screenshot(tab, request)
         return await self._build_response(tab, request, status_code)
@@ -101,7 +96,7 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         try:
             await tab.wait_for(selector=request.wait_for, timeout=request.wait_timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.crawler.spider.logger.error(f'Timed out waiting for element "{request.wait_for}" on {request.url}')
             await self._take_debug_screenshot(tab)
             raise IgnoreRequest(f'Element "{request.wait_for}" not found within {request.wait_timeout} seconds')
