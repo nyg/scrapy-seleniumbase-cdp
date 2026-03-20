@@ -26,11 +26,13 @@ pip install scrapy-seleniumbase-cdp
     }
     ```
 
-2. If needed, configuration can be provided to the SeleniumBase browser instance:
+2. If needed, configuration can be provided to the SeleniumBase browser instance.
+   For example, to enable the built-in ad blocker (blocks 30+ ad and tracking
+   domains via CDP):
 
    ```python
    SELENIUMBASE_BROWSER_OPTIONS = {
-       # …
+       'ad_block': True,
    }
    ```
 
