@@ -33,8 +33,8 @@ The package exposes two public symbols (re-exported from `__init__.py`):
 - **`SeleniumBaseAsyncCDPMiddleware`** (`middleware_async.py`) — async Scrapy downloader middleware. Key behaviours:
   - Returns `None` immediately for any request that is **not** a `SeleniumBaseRequest` (lets Scrapy handle it normally).
   - Holds a single `Browser` instance (from `seleniumbase.undetected.cdp_driver`) shared across all requests; started in `spider_opened`, stopped in `spider_closed`.
-  - `__init__` takes only a `Crawler` and reads settings from it: `SELENIUMBASE_BROWSER_OPTIONS` (dict of kwargs forwarded to `cdp_driver.start_async`) and `SELENIUMBASE_BACKOFF_ON_429` (seconds to sleep on 429, default 60).
-  - **Early status code check**: after `browser.get()` + `solve_captcha()`, the HTTP status is read via the Performance API. On non-2xx, `_wait_for_element`, `_execute_callback`, and `_execute_script` are skipped entirely. A 429 additionally triggers a backoff sleep before returning.
+  - `__init__` takes only a `Crawler` and reads the `SELENIUMBASE_BROWSER_OPTIONS` setting from it (dict of kwargs forwarded to `cdp_driver.start_async`).
+  - **Early status code check**: after `browser.get()` + `solve_captcha()`, the HTTP status is read via the Performance API. On non-2xx, `_wait_for_element`, `_execute_callback`, and `_execute_script` are skipped entirely.
   - **`_wait_for_element` timeout**: raises `IgnoreRequest` (after taking a debug screenshot), which causes Scrapy to skip the request.
   - Per-request results are stored in `response.meta`: `'callback'`, `'script'`, `'screenshot'`.
   - Errors in `_execute_callback`, `_execute_script`, and `_take_screenshot` are caught by the `@_handle_errors` decorator (a `@staticmethod` on the class that accesses the spider via `self.crawler.spider`) and logged — they do **not** abort the request.

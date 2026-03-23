@@ -26,19 +26,14 @@ pip install scrapy-seleniumbase-cdp
     }
     ```
 
-2. If needed, configuration can be provided to the SeleniumBase browser instance:
+2. If needed, configuration can be provided to the SeleniumBase browser instance.
+   For example, to enable the built-in ad blocker (blocks 30+ ad and tracking
+   domains via CDP):
 
    ```python
    SELENIUMBASE_BROWSER_OPTIONS = {
-       # …
+       'ad_block': True,
    }
-   ```
-
-3. Optionally, configure the backoff delay (in seconds) applied when a 429
-   response is received. The default value is 60 seconds:
-
-   ```python
-   SELENIUMBASE_BACKOFF_ON_429 = 60
    ```
 
 ## Usage
@@ -157,10 +152,6 @@ The middleware checks the HTTP status code right after loading the page:
 - **Non-2xx responses**: `wait_for`, `browser_callback`, and
   `script` are skipped. A screenshot is still taken if configured. The response
   is returned with the real status code.
-- **429 (Too Many Requests)**: in addition to the above, the middleware sleeps
-  for `SELENIUMBASE_BACKOFF_ON_429` seconds (default 60) before returning. This
-  gives the target server time to recover. Ensure `429` is in your
-  `RETRY_HTTP_CODES` Scrapy setting for automatic retries.
 - **`wait_for` timeout**: if the expected element is not found within
   `wait_timeout` seconds, a full-page debug screenshot is saved using
   SeleniumBase's default path and `IgnoreRequest` is raised, causing Scrapy to
