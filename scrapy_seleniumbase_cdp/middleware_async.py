@@ -28,6 +28,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         self.crawler = crawler
         self.browser: Browser | None = None
         self.browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
+        self.captcha_solved_event = asyncio.Event()  # todo: thread safe
 
     @classmethod
     def from_crawler(cls, crawler: Crawler):
@@ -53,13 +54,55 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         return decorator
 
+    async def _on_response_received(self, event: mycdp.network.ResponseReceived, request: SeleniumBaseRequest):
+        if event.response.url not in request.url or mycdp.network.ResourceType.DOCUMENT != event.type_:
+            return
+
+        self.crawler.spider.logger.info(f'{event.response.status} response received for {event.response.url}')
+        if event.response.status == 200:
+            self.captcha_solved_event.set()
+        else:
+            self.crawler.spider.logger.info('Trying to solve captcha')
+            await self.browser.main_tab.sleep(1)  # todo, find better way to know when page is ready
+            await self.browser.main_tab.solve_captcha()
+
+    # def _on_frame_navigated(self, event: mycdp.page.FrameNavigated):
+    #     if event.frame.parent_id is None:
+    #         self.crawler.spider.logger.info(f'FrameNavigated, parent.id: {event.frame.parent_id}')
+
+    async def _solve_captcha(self, timeout: float = 15):
+        try:
+            await asyncio.wait_for(self.captcha_solved_event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            self.crawler.spider.logger.debug('No post-captcha navigation detected within timeout')
+
     async def process_request(self, request: Request):
         """Process request using SeleniumBase."""
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
+        async def handler(e):
+            await self._on_response_received(e, request)
+
+        # async def handler2(e):
+        #     await self._on_frame_navigated(e)
+
+        self.browser.main_tab.add_handler(mycdp.network.ResponseReceived, handler)
+        # self.browser.main_tab.add_handler(mycdp.page.FrameNavigated, handler2)
+
+        await self.browser.main_tab.send(mycdp.network.set_blocked_urls([
+            "*doubleclick.net*", "*googlesyndication.com*", "*adservice.google.com*", "*amazon-adsystem.com*", "*ads.yahoo.com*",
+        ]))
+
         tab: Tab = await self.browser.get(request.url)
-        await tab.solve_captcha()
+        # await tab.solve_captcha()
+
+        await self._solve_captcha()
+        self.browser.main_tab.handlers.pop(mycdp.network.ResponseReceived, None)
+        # self.browser.main_tab.handlers.pop(mycdp.page.FrameNavigated, None)
+        self.captcha_solved_event.clear()
+
+        # todo: remove this, and use the latest status that the responsereceived handler got
         status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
 
         if 200 <= status_code < 300:
@@ -67,7 +110,7 @@ class SeleniumBaseAsyncCDPMiddleware:
             await self._execute_callback(request)
             await self._execute_script(tab, request)
         else:
-            self.crawler.spider.logger.warning(f'Received {status_code} for {request.url}')
+            self.crawler.spider.logger.warning(f'Received {status_code} for {request.url}, skipping processing')
 
         await self._take_screenshot(tab, request)
         return await self._build_response(tab, request, status_code)
