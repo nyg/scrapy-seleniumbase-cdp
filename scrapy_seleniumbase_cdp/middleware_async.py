@@ -1,7 +1,11 @@
+import asyncio
+from asyncio import Event
 from base64 import b64decode
 from functools import wraps
 
 import mycdp
+from mycdp.accessibility import LoadComplete
+from mycdp.network import ResponseReceived
 from scrapy import Request, signals
 from scrapy.crawler import Crawler
 from scrapy.exceptions import IgnoreRequest
@@ -58,26 +62,63 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
+        def on_response_received(e: ResponseReceived):
+            if e.response.url not in request.url or mycdp.network.ResourceType.DOCUMENT != e.type_:
+                return
+            self.crawler.spider.logger.info(f'Response received: [{e.response.status}] {e.response.url}')
+
+        def on_load_complete(e: LoadComplete, connection=None):
+            url = next((p.value.value for p in e.root.properties if p.name.value == 'url'), None)
+            if url not in request.url:
+                return
+            self.crawler.spider.logger.info(f'Page loaded: {url}')
+            page_loaded_event.set()
+
+        page_loaded_event = Event()
+
+        await self.browser.main_tab.send(mycdp.accessibility.enable())
+
+        self.browser.main_tab.add_handler(ResponseReceived, on_response_received)
+        self.browser.main_tab.add_handler(LoadComplete, on_load_complete)
+
+        try:
+            return await self._process_request(request, page_loaded_event)
+        except Exception as e:
+            self.crawler.spider.logger.exception(f'Error processing request: {e}')
+            raise IgnoreRequest(f'Error processing request: {e}')
+        finally:
+            self.browser.main_tab.handlers.clear()
+
+    async def _process_request(self, request: SeleniumBaseRequest, page_loaded_event: Event):
         tab: Tab = await self.browser.get(request.url)
-        await tab.solve_captcha()
-        status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
 
-        if 200 <= status_code < 300:
-            await self._wait_for_element(tab, request)
-            await self._execute_callback(request)
-            await self._execute_script(tab, request)
+        try:
+            await asyncio.wait_for(page_loaded_event.wait(), timeout=15)
+        except TimeoutError:
+            self.crawler.spider.logger.warning(f'Timed out waiting for page to load: {request.url}')
+
+        await asyncio.sleep(1)  # give the page a moment to stabilize after load
+        if await tab.solve_captcha():
+            self.crawler.spider.logger.info('A captcha was solved')
         else:
-            self.crawler.spider.logger.warning(f'Received {status_code} for {request.url}')
+            self.crawler.spider.logger.info('No captcha found or solved')
 
+        await self._wait_for_element(tab, request)
+        await self._execute_callback(request)
+        await self._execute_script(tab, request)
         await self._take_screenshot(tab, request)
-        return await self._build_response(tab, request, status_code)
+
+        # for info only
+        status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
+        self.crawler.spider.logger.info(f'Received {status_code} for {request.url}')
+
+        return await self._build_response(tab, request, 200)
 
     async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
         """Build an HtmlResponse from the current tab state."""
         tab_url = await tab.evaluate('window.location.href')
         page_source = await tab.evaluate('document.documentElement.outerHTML')
         cookies = [f'{c.name}={c.value}' for c in await self.browser.cookies.get_all()]
-
         return HtmlResponse(url=tab_url,
                             body=page_source.encode('utf-8'),
                             encoding='utf-8',
