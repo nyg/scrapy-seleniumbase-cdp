@@ -62,9 +62,12 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
+        status = {'code': 200}
+
         def on_response_received(e: ResponseReceived):
             if e.response.url not in request.url or mycdp.network.ResourceType.DOCUMENT != e.type_:
                 return
+            status['code'] = e.response.status
             self.crawler.spider.logger.info(f'Response received: [{e.response.status}] {e.response.url}')
 
         def on_load_complete(e: LoadComplete, connection=None):
@@ -75,21 +78,24 @@ class SeleniumBaseAsyncCDPMiddleware:
             page_loaded_event.set()
 
         page_loaded_event = Event()
+        tab = self.browser.main_tab
 
-        await self.browser.main_tab.send(mycdp.accessibility.enable())
+        await tab.send(mycdp.accessibility.enable())
 
-        self.browser.main_tab.add_handler(ResponseReceived, on_response_received)
-        self.browser.main_tab.add_handler(LoadComplete, on_load_complete)
+        tab.add_handler(ResponseReceived, on_response_received)
+        tab.add_handler(LoadComplete, on_load_complete)
 
         try:
-            return await self._process_request(request, page_loaded_event)
+            return await self._process_request(request, page_loaded_event, status)
         except Exception as e:
             self.crawler.spider.logger.exception(f'Error processing request: {e}')
             raise IgnoreRequest(f'Error processing request: {e}')
         finally:
-            self.browser.main_tab.handlers.clear()
+            tab.handlers.get(ResponseReceived, []).remove(on_response_received)
+            tab.handlers.get(LoadComplete, []).remove(on_load_complete)
+            await tab.send(mycdp.accessibility.disable())
 
-    async def _process_request(self, request: SeleniumBaseRequest, page_loaded_event: Event):
+    async def _process_request(self, request: SeleniumBaseRequest, page_loaded_event: Event, status: dict):
         tab: Tab = await self.browser.get(request.url)
 
         try:
@@ -108,11 +114,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         await self._execute_script(tab, request)
         await self._take_screenshot(tab, request)
 
-        # for info only
-        status_code = await tab.evaluate('performance.getEntriesByType("navigation")[0]?.responseStatus ?? 200')
-        self.crawler.spider.logger.info(f'Received {status_code} for {request.url}')
-
-        return await self._build_response(tab, request, 200)
+        return await self._build_response(tab, request, status['code'])
 
     async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
         """Build an HtmlResponse from the current tab state."""
