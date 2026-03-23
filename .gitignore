@@ -9,3 +9,6 @@ __pycache__
 
 # misc
 .DS_Store
+
+# seleniumbase
+downloaded_files
