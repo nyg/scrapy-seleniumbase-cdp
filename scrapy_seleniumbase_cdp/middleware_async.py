@@ -63,11 +63,14 @@ class SeleniumBaseAsyncCDPMiddleware:
             return None
 
         status = {'code': 200}
+        status_event = Event()
+        page_loaded_event = Event()
 
         def on_response_received(e: ResponseReceived):
             if e.response.url not in request.url or mycdp.network.ResourceType.DOCUMENT != e.type_:
                 return
             status['code'] = e.response.status
+            status_event.set()
             self.crawler.spider.logger.info(f'Response received: [{e.response.status}] {e.response.url}')
 
         def on_load_complete(e: LoadComplete, connection=None):
@@ -77,7 +80,6 @@ class SeleniumBaseAsyncCDPMiddleware:
             self.crawler.spider.logger.info(f'Page loaded: {url}')
             page_loaded_event.set()
 
-        page_loaded_event = Event()
         tab = self.browser.main_tab
 
         await tab.send(mycdp.accessibility.enable())
@@ -86,7 +88,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         tab.add_handler(LoadComplete, on_load_complete)
 
         try:
-            return await self._process_request(request, page_loaded_event, status)
+            return await self._process_request(request, status_event, page_loaded_event, status)
         except Exception as e:
             self.crawler.spider.logger.exception(f'Error processing request: {e}')
             raise IgnoreRequest(f'Error processing request: {e}')
@@ -95,26 +97,35 @@ class SeleniumBaseAsyncCDPMiddleware:
             tab.handlers.get(LoadComplete, []).remove(on_load_complete)
             await tab.send(mycdp.accessibility.disable())
 
-    async def _process_request(self, request: SeleniumBaseRequest, page_loaded_event: Event, status: dict):
+    async def _process_request(self, request: SeleniumBaseRequest, status_event: Event, page_loaded_event: Event, status: dict):
         tab: Tab = await self.browser.get(request.url)
 
         try:
-            await asyncio.wait_for(page_loaded_event.wait(), timeout=15)
+            await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)
         except TimeoutError:
             self.crawler.spider.logger.warning(f'Timed out waiting for page to load: {request.url}')
 
-        await asyncio.sleep(1)  # give the page a moment to stabilize after load
-        if await tab.solve_captcha():
-            self.crawler.spider.logger.info('A captcha was solved')
+        status_code = status['code']
+        if status_code in request.captcha_blocked_codes:
+            delay = request.captcha_blocked_delay
         else:
-            self.crawler.spider.logger.info('No captcha found or solved')
+            delay = request.captcha_delay
+
+        for attempt in range(request.captcha_max_attempts):
+            await asyncio.sleep(delay)
+            if not await tab.solve_captcha():
+                self.crawler.spider.logger.info('No captcha found or solved')
+                break
+            self.crawler.spider.logger.info(f'Captcha solved (attempt {attempt + 1} out of {request.captcha_max_attempts})')
+        else:
+            self.crawler.spider.logger.warning(f'Max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
 
         await self._wait_for_element(tab, request)
         await self._execute_callback(request)
         await self._execute_script(tab, request)
         await self._take_screenshot(tab, request)
 
-        return await self._build_response(tab, request, status['code'])
+        return await self._build_response(tab, request, status_code)
 
     async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
         """Build an HtmlResponse from the current tab state."""
@@ -134,15 +145,15 @@ class SeleniumBaseAsyncCDPMiddleware:
         Raises:
             IgnoreRequest: If the element is not found within the timeout.
         """
-        if not request.wait_for:
+        if not request.wait_for_element:
             return
 
         try:
-            await tab.wait_for(selector=request.wait_for, timeout=request.wait_timeout)
+            await tab.wait_for(selector=request.wait_for_element, timeout=request.element_timeout)
         except TimeoutError:
-            self.crawler.spider.logger.error(f'Timed out waiting for element "{request.wait_for}" on {request.url}')
+            self.crawler.spider.logger.error(f'Timed out waiting for element "{request.wait_for_element}" on {request.url}')
             await self._take_debug_screenshot(tab)
-            raise IgnoreRequest(f'Element "{request.wait_for}" not found within {request.wait_timeout} seconds')
+            raise IgnoreRequest(f'Element "{request.wait_for_element}" not found within {request.element_timeout} seconds')
 
     @_handle_errors("Error executing browser callback")
     async def _execute_callback(self, request: SeleniumBaseRequest):
