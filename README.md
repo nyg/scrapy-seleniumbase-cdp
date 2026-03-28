@@ -51,10 +51,10 @@ async def start(self):
 
 ### Additional arguments
 
-The `scrapy_seleniumbase_cdp.SeleniumBaseRequest` accepts five additional
+The `scrapy_seleniumbase_cdp.SeleniumBaseRequest` accepts additional
 arguments. They are executed in the order presented below:
 
-#### `wait_for` / `wait_timeout`
+#### `wait_for_element` / `element_timeout`
 
 When used, SeleniumBase will wait for the element with the given CSS selector
 to appear. The default timeout value is of 10 seconds but can be changed if
@@ -66,9 +66,16 @@ using SeleniumBase's default path.
 yield SeleniumBaseRequest(
     url=url,
     callback=self.parse_result,
-    wait_for='h1.some-class',
-    wait_timeout=5))
+    wait_for_element='h1.some-class',
+    element_timeout=5,
+    page_load_timeout=20))
 ```
+
+#### `page_load_timeout`
+
+Maximum number of seconds to wait for both the HTTP response and the page load
+event before proceeding. If the timeout is reached, a warning is logged but the
+request continues. Defaults to `15`.
 
 #### `browser_callback`
 
@@ -145,15 +152,50 @@ Available configuration keys:
 - `format`: Image format, defaults to `png`, `jpg` also available.
 - `full_page`: Capture full page or just viewport, defaults to `True`.
 
+#### Captcha handling
+
+After navigating to a page, the middleware waits for both the HTTP response
+status and the page load event. It then attempts to solve any captcha present
+on the page using SeleniumBase's built-in solver, retrying up to a configurable
+maximum number of attempts.
+
+The delay before the first solve attempt and between retries depends on the
+HTTP status code:
+
+- **2xx responses**: wait `captcha_delay` seconds (default `0`)
+- **Blocked responses** (status in `captcha_blocked_codes`): wait
+  `captcha_blocked_delay` seconds (default `4`)
+
+```python
+yield SeleniumBaseRequest(
+    url=url,
+    callback=self.parse_result,
+    captcha_delay=1,
+    captcha_blocked_delay=5,
+    captcha_blocked_codes=[403, 429, 503],
+    captcha_max_attempts=5)
+```
+
+Available captcha configuration:
+
+- `captcha_delay`: Seconds to wait before solving on a successful response.
+  Defaults to `0`.
+- `captcha_blocked_delay`: Seconds to wait before solving on a blocked
+  response. Defaults to `4`.
+- `captcha_blocked_codes`: List of HTTP status codes treated as blocked.
+  Defaults to `[403, 429, 503]`.
+- `captcha_max_attempts`: Maximum number of solve attempts. Defaults to `3`.
+  After exhausting all attempts the middleware continues normally but logs a
+  warning.
+
 ## Error handling
 
-The middleware checks the HTTP status code right after loading the page:
+The middleware checks the HTTP status code right after loading the page to
+determine captcha-solving behaviour (see [Captcha handling](#captcha-handling)
+above).
 
-- **Non-2xx responses**: `wait_for`, `browser_callback`, and
-  `script` are skipped. A screenshot is still taken if configured. The response
-  is returned with the real status code.
-- **`wait_for` timeout**: if the expected element is not found within
-  `wait_timeout` seconds, a full-page debug screenshot is saved using
+- **`wait_for_element` timeout**: if the expected element is not found within
+  `element_timeout` seconds, a full-page debug screenshot is saved using
   SeleniumBase's default path and `IgnoreRequest` is raised, causing Scrapy to
   skip the request.
 
