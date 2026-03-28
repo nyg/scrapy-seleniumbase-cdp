@@ -28,7 +28,7 @@ Changelog entries are driven by **Conventional Commits** (feat, fix, refactor, e
 
 The package exposes two public symbols (re-exported from `__init__.py`):
 
-- **`SeleniumBaseRequest`** (`request.py`) — subclass of Scrapy's `Request`. Accepts extra kwargs: `wait_for_element`, `element_timeout`, `browser_callback`, `script`, `screenshot`, `page_load_timeout`, `captcha_delay`, `captcha_blocked_delay`, `captcha_blocked_codes`, `captcha_max_attempts`. The `script` arg is normalised to a `ScriptConfig` dict in `__init__` via a `match` statement. `screenshot=True` is coerced to `{'format': 'png', 'full_page': True}`.
+- **`SeleniumBaseRequest`** (`request.py`) — subclass of Scrapy's `Request`. Accepts extra kwargs: `page_load_timeout`, `captcha_delay`, `captcha_blocked_delay`, `captcha_blocked_codes`, `captcha_max_attempts`, `wait_for_element`, `element_timeout`, `browser_callback`, `script`, `screenshot`. The `script` arg is normalised to a `ScriptConfig` dict in `__init__` via a `match` statement. `screenshot=True` is coerced to `{'format': 'png', 'full_page': True}`.
 
 - **`SeleniumBaseAsyncCDPMiddleware`** (`middleware_async.py`) — async Scrapy downloader middleware. Key behaviours:
   - Returns `None` immediately for any request that is **not** a `SeleniumBaseRequest` (lets Scrapy handle it normally).

@@ -101,8 +101,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         tab: Tab = await self.browser.get(request.url)
 
         try:
-            await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()),
-                                  timeout=request.page_load_timeout)
+            await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)
         except TimeoutError:
             self.crawler.spider.logger.warning(f'Timed out waiting for page to load: {request.url}')
 
@@ -112,16 +111,12 @@ class SeleniumBaseAsyncCDPMiddleware:
         else:
             delay = request.captcha_delay
 
-        if delay > 0:
-            await asyncio.sleep(delay)
-
         for attempt in range(request.captcha_max_attempts):
+            await asyncio.sleep(delay)
             if not await tab.solve_captcha():
                 self.crawler.spider.logger.info('No captcha found or solved')
                 break
             self.crawler.spider.logger.info(f'Captcha solved (attempt {attempt + 1} out of {request.captcha_max_attempts})')
-            if delay > 0:
-                await asyncio.sleep(delay)
         else:
             self.crawler.spider.logger.warning(f'Max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
 
