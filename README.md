@@ -11,6 +11,24 @@ requests, allowing to bypass most anti-bot protections (e.g. CloudFlare).
 Using Selenium's pure CDP mode also makes the middleware more platform
 independent as no WebDriver is required.
 
+## Table of contents
+
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+  - [Additional arguments](#additional-arguments)
+    - [`page_load_timeout`](#page_load_timeout)
+    - [Captcha handling](#captcha-handling)
+    - [`wait_for_element` / `element_timeout`](#wait_for_element--element_timeout)
+    - [`browser_callback`](#browser_callback)
+    - [`script`](#script)
+    - [`screenshot`](#screenshot)
+- [Error handling](#error-handling)
+- [Tips for headless Linux environments](#tips-for-headless-linux-environments)
+  - [Recording an Xvfb session with ffmpeg](#recording-an-xvfb-session-with-ffmpeg)
+  - [Connecting via VNC to an Xvfb session](#connecting-via-vnc-to-an-xvfb-session)
+- [License](#license)
+
 ## Installation
 
 ```
