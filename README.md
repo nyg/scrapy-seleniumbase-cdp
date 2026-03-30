@@ -198,6 +198,43 @@ above).
   SeleniumBase's default path and `IgnoreRequest` is raised, causing Scrapy to
   skip the request.
 
+## Tips for headless Linux environments
+
+When running Scrapy with this middleware in headless mode using Xvfb on Linux,
+you may want to record or visually inspect browser sessions for debugging
+purposes. The examples below assume an Xvfb display at `:1001` — adjust to
+match your setup.
+
+### Recording an Xvfb session with ffmpeg
+
+Use `ffmpeg` to capture the virtual display as a video file:
+
+```bash
+ffmpeg -f x11grab -r 30 -s 1440x900 -i :1001 \
+    -codec:v libx264 -preset ultrafast -pix_fmt yuv420p \
+    /home/user/session_$(date +%Y%m%d_%H%M%S).mp4
+```
+
+Key flags:
+- `-f x11grab` — capture from an X11 display
+- `-r 30` — frame rate (30 fps)
+- `-s 1440x900` — resolution (must match your Xvfb geometry)
+- `-i :1001` — X display to capture
+
+### Connecting via VNC to an Xvfb session
+
+Use `x11vnc` to expose the virtual display over VNC for live inspection:
+
+```bash
+x11vnc -display :1001 -passwd secret -forever -xkb
+```
+
+Then connect from any VNC client to `<host>:5900`. Key flags:
+- `-display :1001` — X display to share
+- `-passwd secret` — VNC password
+- `-forever` — keep the server running after the first client disconnects
+- `-xkb` — use XKEYBOARD extension for better keyboard handling
+
 ## License
 
 This project is licensed under the MIT License. It is a fork
