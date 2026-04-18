@@ -24,9 +24,11 @@ independent as no WebDriver is required.
     - [`script`](#script)
     - [`screenshot`](#screenshot)
 - [Error handling](#error-handling)
+- [Enabling debug logs](#enabling-debug-logs)
 - [Tips for headless Linux environments](#tips-for-headless-linux-environments)
   - [Recording an Xvfb session with ffmpeg](#recording-an-xvfb-session-with-ffmpeg)
   - [Connecting via VNC to an Xvfb session](#connecting-via-vnc-to-an-xvfb-session)
+- [Architecture](#architecture)
 - [License](#license)
 
 ## Installation
@@ -253,6 +255,43 @@ Then connect from any VNC client to `<host>:5900`. Key flags:
 - `-forever` — keep the server running after the first client disconnects
 - `-xkb` — use XKEYBOARD extension for better keyboard handling
 
+## Enabling debug logs
+
+The middleware logs operational details (page load events, captcha attempts,
+screenshot captures, etc.) at the `DEBUG` level. Warnings and errors (page load
+timeouts, element wait timeouts, max captcha attempts reached) use higher log
+levels and are always visible.
+
+To see all debug output, set Scrapy's global log level in your `settings.py`:
+
+```python
+LOG_LEVEL = 'DEBUG'
+```
+
+If you prefer to keep Scrapy's own output at a higher level and only enable
+debug logging for this middleware, configure the logger directly:
+
+```python
+# settings.py or spider __init__
+import logging
+logging.getLogger('scrapy_seleniumbase_cdp').setLevel(logging.DEBUG)
+```
+
+You can also use Scrapy's per-module log configuration via the
+[`LOG_CATEGORIES`][6] setting (Scrapy ≥ 2.8):
+
+```python
+LOG_CATEGORIES = {
+    'scrapy_seleniumbase_cdp': 'DEBUG',
+}
+```
+
+## Architecture
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for a detailed overview of
+the middleware internals, including a sequence diagram of the request processing
+pipeline.
+
 ## License
 
 This project is licensed under the MIT License. It is a fork
@@ -262,3 +301,4 @@ which was originally released under the WTFPL.
 [1]: https://github.com/Quartz-Core/scrapy-seleniumbase
 [4]: https://seleniumbase.io/examples/cdp_mode/ReadMe/
 [5]: https://github.com/nyg/autoscout24-trends
+[6]: https://docs.scrapy.org/en/latest/topics/settings.html#log-categories
