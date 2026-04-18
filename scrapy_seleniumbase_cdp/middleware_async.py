@@ -18,16 +18,28 @@ from .request import SeleniumBaseRequest
 
 
 class SeleniumBaseAsyncCDPMiddleware:
-    """
-    Scrapy downloader middleware handling the requests using SeleniumBase pure CDP mode instead of the UC mode.
-    Uses SeleniumBase's async/await API because the event loop of the pure CDP mode conflicts with Scrapy's own event loop.
+    """Scrapy downloader middleware that handles requests using SeleniumBase's pure CDP mode.
+
+    This middleware intercepts ``SeleniumBaseRequest`` instances and processes them through a
+    shared CDP browser, while letting regular Scrapy ``Request`` objects pass through unchanged.
+
+    Lifecycle:
+        1. ``spider_opened``: starts a shared ``Browser`` instance via ``cdp_driver.start_async``.
+        2. ``process_request``: for each ``SeleniumBaseRequest``, navigates the browser, waits for
+           page load, solves captchas, and executes optional post-load steps (element wait, callback,
+           script, screenshot).
+        3. ``spider_closed``: stops the shared browser instance.
+
+    The middleware uses async/await because SeleniumBase's pure CDP mode has its own event loop
+    that conflicts with Scrapy's Twisted reactor.
     """
 
     def __init__(self, crawler: Crawler):
         """Initialize the middleware.
 
         Args:
-            crawler (Crawler): The Scrapy crawler instance.
+            crawler: The Scrapy crawler instance. The ``SELENIUMBASE_BROWSER_OPTIONS`` setting
+                is read from it and forwarded as kwargs to ``cdp_driver.start_async``.
         """
         self.crawler = crawler
         self.browser: Browser | None = None
@@ -35,7 +47,11 @@ class SeleniumBaseAsyncCDPMiddleware:
 
     @classmethod
     def from_crawler(cls, crawler: Crawler):
-        """Initialize the middleware with the crawler settings."""
+        """Create the middleware instance and connect Scrapy signals.
+
+        Connects ``spider_opened`` and ``spider_closed`` signals so the browser
+        is started and stopped together with the spider lifecycle.
+        """
         middleware = cls(crawler)
         crawler.signals.connect(middleware.spider_opened, signals.spider_opened)
         crawler.signals.connect(middleware.spider_closed, signals.spider_closed)
@@ -43,7 +59,12 @@ class SeleniumBaseAsyncCDPMiddleware:
 
     @staticmethod
     def _handle_errors(error_msg: str):
-        """Decorator that catches and logs exceptions from async middleware methods."""
+        """Decorator that catches and logs exceptions from async middleware methods.
+
+        Wrapped methods log the error but do **not** abort the request — processing
+        continues so that partial results (e.g. page source without a screenshot) are
+        still returned to the spider.
+        """
 
         def decorator(func):
             @wraps(func)
@@ -58,9 +79,21 @@ class SeleniumBaseAsyncCDPMiddleware:
         return decorator
 
     async def process_request(self, request: Request):
-        """Process request using SeleniumBase."""
+        """Process a request using the CDP browser if it is a ``SeleniumBaseRequest``.
+
+        For regular Scrapy ``Request`` objects, returns ``None`` so Scrapy handles them normally.
+
+        For ``SeleniumBaseRequest`` instances, registers CDP event handlers for
+        ``ResponseReceived`` and ``LoadComplete``, delegates to ``_process_request`` for
+        the actual page load and post-processing, then cleans up the handlers.
+
+        Raises:
+            IgnoreRequest: If an unrecoverable error occurs during processing.
+        """
         if not isinstance(request, SeleniumBaseRequest):
             return None
+
+        self.crawler.spider.logger.debug(f'processing request: {request.url}')
 
         status = {'code': 200}
         status_event = Event()
@@ -71,13 +104,13 @@ class SeleniumBaseAsyncCDPMiddleware:
                 return
             status['code'] = e.response.status
             status_event.set()
-            self.crawler.spider.logger.info(f'Response received: [{e.response.status}] {e.response.url}')
+            self.crawler.spider.logger.debug(f'response received: [{e.response.status}] {e.response.url}')
 
         def on_load_complete(e: LoadComplete, connection=None):
             url = next((p.value.value for p in e.root.properties if p.name.value == 'url'), None)
             if url not in request.url:
                 return
-            self.crawler.spider.logger.info(f'Page loaded: {url}')
+            self.crawler.spider.logger.debug(f'page loaded: {url}')
             page_loaded_event.set()
 
         tab = self.browser.main_tab
@@ -98,7 +131,20 @@ class SeleniumBaseAsyncCDPMiddleware:
             await tab.send(mycdp.accessibility.disable())
 
     async def _process_request(self, request: SeleniumBaseRequest, status_event: Event, page_loaded_event: Event, status: dict):
+        """Execute the full request processing pipeline.
+
+        Steps (in order):
+            1. Navigate the browser to the request URL.
+            2. Wait for both the HTTP response and the page load event (with timeout).
+            3. Attempt to solve any captcha present on the page.
+            4. Wait for a specific DOM element (optional, raises ``IgnoreRequest`` on timeout).
+            5. Execute the user-provided browser callback (optional).
+            6. Execute a JavaScript snippet (optional).
+            7. Take a screenshot (optional).
+            8. Build and return an ``HtmlResponse``.
+        """
         tab: Tab = await self.browser.get(request.url)
+        self.crawler.spider.logger.debug(f'navigating to: {request.url}')
 
         try:
             await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)
@@ -114,9 +160,9 @@ class SeleniumBaseAsyncCDPMiddleware:
         for attempt in range(request.captcha_max_attempts):
             await asyncio.sleep(delay)
             if not await tab.solve_captcha():
-                self.crawler.spider.logger.info('No captcha found or solved')
+                self.crawler.spider.logger.debug(f'no captcha detected: {request.url}')
                 break
-            self.crawler.spider.logger.info(f'Captcha solved (attempt {attempt + 1} out of {request.captcha_max_attempts})')
+            self.crawler.spider.logger.debug(f'captcha solved on attempt {attempt + 1}/{request.captcha_max_attempts}: {request.url}')
         else:
             self.crawler.spider.logger.warning(f'Max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
 
@@ -148,6 +194,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not request.wait_for_element:
             return
 
+        self.crawler.spider.logger.debug(f'waiting for element "{request.wait_for_element}" (timeout: {request.element_timeout}s): {request.url}')
+
         try:
             await tab.wait_for(selector=request.wait_for_element, timeout=request.element_timeout)
         except TimeoutError:
@@ -161,6 +209,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not request.browser_callback:
             return
 
+        self.crawler.spider.logger.debug(f'executing browser callback: {request.url}')
         request.meta['callback'] = await request.browser_callback(self.browser)
 
     @_handle_errors("Error executing script")
@@ -169,6 +218,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not request.script or not request.script.get('script'):
             return
 
+        self.crawler.spider.logger.debug(f'executing script: {request.url}')
         request.meta['script'] = await tab.evaluate(request.script['script'],
                                                     await_promise=request.script.get('await_promise', False))
 
@@ -177,6 +227,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         """Take a screenshot if requested."""
         if not request.screenshot:
             return
+
+        self.crawler.spider.logger.debug(f'taking screenshot: {request.url}')
 
         image_format = request.screenshot.get('format', 'png')
         full_page = request.screenshot.get('full_page', True)
@@ -193,12 +245,14 @@ class SeleniumBaseAsyncCDPMiddleware:
     async def _take_debug_screenshot(self, tab: Tab):
         """Take a full-page debug screenshot using SeleniumBase's default path."""
         path = await tab.save_screenshot('auto', 'png', True)
-        self.crawler.spider.logger.info(f'Debug screenshot saved in {path}')
+        self.crawler.spider.logger.debug(f'debug screenshot saved in {path}')
 
     async def spider_opened(self, spider):
         """Start the CDP browser when the spider opens."""
         self.browser = await cdp_driver.start_async(**self.browser_options)
+        spider.logger.debug('browser started')
 
-    def spider_closed(self):
+    def spider_closed(self, spider):
         """Stop the browser when the spider closes."""
         self.browser.stop()
+        spider.logger.debug('browser stopped')
