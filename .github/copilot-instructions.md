@@ -38,7 +38,7 @@ The package exposes two public symbols (re-exported from `__init__.py`):
   - **Captcha solving loop**: after page load, a delay is applied based on the HTTP status code (`captcha_delay` for 2xx, `captcha_blocked_delay` for codes in `captcha_blocked_codes`). Then `tab.solve_captcha()` is called in a loop up to `captcha_max_attempts` times, sleeping `delay` seconds between each attempt. If max attempts are exhausted, a warning is logged and processing continues.
   - **`_wait_for_element` timeout**: captures a full-page error screenshot (stored in `request.meta['error_screenshot']`) and raises `IgnoreRequest`, which causes Scrapy to skip the request. The screenshot is accessible in the spider's `errback` via `failure.request.meta['error_screenshot']`.
   - Per-request results are stored in `response.meta`: `'callback'`, `'script'`, `'screenshot'`.
-  - Errors in `_execute_callback`, `_execute_script`, `_take_screenshot`, and `_take_error_screenshot` are caught by the `@_handle_errors` decorator (a `@staticmethod` on the class that accesses the spider via `self.crawler.spider`) and logged — they do **not** abort the request.
+  - Errors in `_execute_callback`, `_execute_script`, `_take_screenshot`, and `_take_error_screenshot` are caught by the `_handle_errors` module-level decorator and logged via the module-level logger — they do **not** abort the request. Methods that do not access instance state (`_execute_script`, `_take_screenshot`, `_take_error_screenshot`, `_wait_for_element`) are `@staticmethod`s.
 
 ## Key Conventions
 
@@ -46,5 +46,5 @@ The package exposes two public symbols (re-exported from `__init__.py`):
 - The middleware must use async/await (`cdp_driver`'s async API) because pure CDP mode has its own event loop that conflicts with Scrapy's Twisted loop.
 - `SeleniumBaseRequest` kwargs mirror the README documentation exactly — keep them in sync when adding new features.
 - Version is maintained solely in `pyproject.toml` under `[project] version`; `commitizen` updates it automatically — do not edit it manually.
-- **Logging**: all operational log messages use `DEBUG` level. Only warnings (e.g. page load timeout, max captcha attempts) and errors (e.g. element wait timeout) use higher levels. Log messages are lowercase and include the request URL for traceability.
+- **Logging**: all operational log messages use `DEBUG` level via a module-level logger (`logging.getLogger(__name__)`). Warnings (e.g. page load timeout, max captcha attempts) and errors (e.g. element wait timeout) use higher levels. Log messages are lowercase and include the request URL for traceability. The logger name is `scrapy_seleniumbase_cdp.middleware_async`.
 - See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for a detailed overview of the middleware internals, including a mermaid sequence diagram.

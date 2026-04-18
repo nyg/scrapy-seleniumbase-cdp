@@ -136,9 +136,9 @@ After captcha handling, the middleware executes optional steps in order:
 
 #### Error handling
 
-- The `@_handle_errors` decorator wraps the callback, script, and screenshot
-  methods. It catches exceptions and logs them but does **not** abort the
-  request — partial results are still returned.
+- The `_handle_errors` module-level decorator wraps the callback, script, and
+  screenshot methods. It catches exceptions and logs them via the module-level
+  logger but does **not** abort the request — partial results are still returned.
 - An unrecoverable error in the main pipeline raises `IgnoreRequest`, causing
   Scrapy to skip the request entirely.
 
