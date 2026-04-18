@@ -46,3 +46,5 @@ The package exposes two public symbols (re-exported from `__init__.py`):
 - The middleware must use async/await (`cdp_driver`'s async API) because pure CDP mode has its own event loop that conflicts with Scrapy's Twisted loop.
 - `SeleniumBaseRequest` kwargs mirror the README documentation exactly — keep them in sync when adding new features.
 - Version is maintained solely in `pyproject.toml` under `[project] version`; `commitizen` updates it automatically — do not edit it manually.
+- **Logging**: all operational log messages use `DEBUG` level. Only warnings (e.g. page load timeout, max captcha attempts) and errors (e.g. element wait timeout) use higher levels. Log messages are lowercase and include the request URL for traceability.
+- See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for a detailed overview of the middleware internals, including a mermaid sequence diagram.
