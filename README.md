@@ -118,16 +118,32 @@ Available captcha configuration:
 
 When used, SeleniumBase will wait for the element with the given CSS selector
 to appear. The default timeout value is of 10 seconds but can be changed if
-needed. If the element is not found within the timeout, the request is skipped
-(Scrapy's `IgnoreRequest` is raised) and a full-page debug screenshot is saved
-using SeleniumBase's default path.
+needed. If the element is not found within the timeout, a full-page error
+screenshot is captured and stored in `request.meta['error_screenshot']`, then
+the request is skipped (Scrapy's `IgnoreRequest` is raised). The screenshot
+image format is taken from the request's `screenshot` configuration if set,
+otherwise it defaults to PNG.
+
+The error screenshot is accessible in the request's `errback` via
+`failure.request.meta['error_screenshot']`:
 
 ```python
+from scrapy.spidermiddlewares.httperror import HttpError
+from twisted.internet.error import DNSLookupError, TimeoutError
+
 yield SeleniumBaseRequest(
     url=url,
     callback=self.parse_result,
+    errback=self.handle_error,
     wait_for_element='h1.some-class',
     element_timeout=5)
+
+
+def handle_error(self, failure):
+    screenshot = failure.request.meta.get('error_screenshot')
+    if screenshot:
+        with open('error.png', 'wb') as f:
+            f.write(screenshot)
 ```
 
 #### `browser_callback`
@@ -212,9 +228,11 @@ determine captcha-solving behaviour (see [Captcha handling](#captcha-handling)
 above).
 
 - **`wait_for_element` timeout**: if the expected element is not found within
-  `element_timeout` seconds, a full-page debug screenshot is saved using
-  SeleniumBase's default path and `IgnoreRequest` is raised, causing Scrapy to
-  skip the request.
+  `element_timeout` seconds, a full-page error screenshot is captured and stored
+  in `request.meta['error_screenshot']`, then `IgnoreRequest` is raised, causing
+  Scrapy to skip the request. The screenshot is accessible in the request's
+  `errback` via `failure.request.meta['error_screenshot']` (see
+  [`wait_for_element`](#wait_for_element--element_timeout) for an example).
 
 ## Tips for headless Linux environments
 

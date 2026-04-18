@@ -89,6 +89,8 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         try:
             return await self._process_request(request, status_event, page_loaded_event, status)
+        except IgnoreRequest:
+            raise
         except Exception as e:
             self.crawler.spider.logger.exception(f'Error processing request: {e}')
             raise IgnoreRequest(f'Error processing request: {e}')
@@ -152,7 +154,7 @@ class SeleniumBaseAsyncCDPMiddleware:
             await tab.wait_for(selector=request.wait_for_element, timeout=request.element_timeout)
         except TimeoutError:
             self.crawler.spider.logger.error(f'Timed out waiting for element "{request.wait_for_element}" on {request.url}')
-            await self._take_debug_screenshot(tab)
+            await self._take_error_screenshot(tab, request)
             raise IgnoreRequest(f'Element "{request.wait_for_element}" not found within {request.element_timeout} seconds')
 
     @_handle_errors("Error executing browser callback")
@@ -189,11 +191,24 @@ class SeleniumBaseAsyncCDPMiddleware:
             request.meta['screenshot'] = b64decode(await tab.send(command))
             self.crawler.spider.logger.debug('Screenshot saved in response.meta["screenshot"]')
 
-    @_handle_errors("Error taking debug screenshot")
-    async def _take_debug_screenshot(self, tab: Tab):
-        """Take a full-page debug screenshot using SeleniumBase's default path."""
-        path = await tab.save_screenshot('auto', 'png', True)
-        self.crawler.spider.logger.info(f'Debug screenshot saved in {path}')
+    @_handle_errors("Error taking error screenshot")
+    async def _take_error_screenshot(self, tab: Tab, request: SeleniumBaseRequest):
+        """Take a screenshot on error and store it in ``request.meta['error_screenshot']``.
+
+        Uses the image format from the request's screenshot configuration if available,
+        otherwise defaults to a full-page PNG. Always captures the full page regardless
+        of the user's ``full_page`` setting, to maximise diagnostic value.
+
+        The screenshot is accessible in the spider's errback via
+        ``failure.request.meta['error_screenshot']``.
+        """
+        image_format = 'png'
+        if request.screenshot and isinstance(request.screenshot, dict):
+            image_format = request.screenshot.get('format', 'png')
+
+        command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=True)
+        request.meta['error_screenshot'] = b64decode(await tab.send(command))
+        self.crawler.spider.logger.debug(f'Error screenshot saved in request.meta["error_screenshot"]: {request.url}')
 
     async def spider_opened(self, spider):
         """Start the CDP browser when the spider opens."""
