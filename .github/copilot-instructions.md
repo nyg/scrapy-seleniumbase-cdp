@@ -36,9 +36,9 @@ The package exposes two public symbols (re-exported from `__init__.py`):
   - `__init__` takes only a `Crawler` and reads the `SELENIUMBASE_BROWSER_OPTIONS` setting from it (dict of kwargs forwarded to `cdp_driver.start_async`).
   - **Event-driven page load**: after `browser.get()`, two `asyncio.Event`s are awaited — one for the HTTP response status (`ResponseReceived`) and one for page load (`LoadComplete`). Both are gathered with `asyncio.wait_for(timeout=request.page_load_timeout)`. On timeout, processing continues with a warning.
   - **Captcha solving loop**: after page load, a delay is applied based on the HTTP status code (`captcha_delay` for 2xx, `captcha_blocked_delay` for codes in `captcha_blocked_codes`). Then `tab.solve_captcha()` is called in a loop up to `captcha_max_attempts` times, sleeping `delay` seconds between each attempt. If max attempts are exhausted, a warning is logged and processing continues.
-  - **`_wait_for_element` timeout**: raises `IgnoreRequest` (after taking a debug screenshot), which causes Scrapy to skip the request.
+  - **`_wait_for_element` timeout**: captures a full-page error screenshot (stored in `request.meta['error_screenshot']`) and raises `IgnoreRequest`, which causes Scrapy to skip the request. The screenshot is accessible in the spider's `errback` via `failure.request.meta['error_screenshot']`.
   - Per-request results are stored in `response.meta`: `'callback'`, `'script'`, `'screenshot'`.
-  - Errors in `_execute_callback`, `_execute_script`, and `_take_screenshot` are caught by the `@_handle_errors` decorator (a `@staticmethod` on the class that accesses the spider via `self.crawler.spider`) and logged — they do **not** abort the request.
+  - Errors in `_execute_callback`, `_execute_script`, `_take_screenshot`, and `_take_error_screenshot` are caught by the `@_handle_errors` decorator (a `@staticmethod` on the class that accesses the spider via `self.crawler.spider`) and logged — they do **not** abort the request.
 
 ## Key Conventions
 
