@@ -48,3 +48,4 @@ The package exposes two public symbols (re-exported from `__init__.py`):
 - Version is maintained solely in `pyproject.toml` under `[project] version`; `commitizen` updates it automatically — do not edit it manually.
 - **Logging**: all operational log messages use `DEBUG` level via a module-level logger (`logging.getLogger(__name__)`). Warnings (e.g. page load timeout, max captcha attempts) and errors (e.g. element wait timeout) use higher levels. Log messages are lowercase and include the request URL for traceability. The logger name is `scrapy_seleniumbase_cdp.middleware_async`.
 - See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for a detailed overview of the middleware internals, including a mermaid sequence diagram.
+- **Branching**: never commit directly to `master`. If on `master`, create a new branch before committing. If already on a non-`master` branch, reuse it. Always open a pull request against `master`.

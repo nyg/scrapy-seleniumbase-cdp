@@ -43,4 +43,6 @@ jobs:
         run: cz bump --yes --increment ${{ inputs.version_bump }}
 
       - name: Push changes and tags
-        run: git push origin master --tags
+        run: |
+          git push origin master
+          git push origin --tags
