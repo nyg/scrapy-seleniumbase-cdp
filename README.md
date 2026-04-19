@@ -276,9 +276,10 @@ Then connect from any VNC client to `<host>:5900`. Key flags:
 ## Enabling debug logs
 
 The middleware logs operational details (page load events, captcha attempts,
-screenshot captures, etc.) at the `DEBUG` level. Warnings and errors (page load
-timeouts, element wait timeouts, max captcha attempts reached) use higher log
-levels and are always visible.
+screenshot captures, etc.) at the `DEBUG` level. Log messages are emitted under
+the `scrapy_seleniumbase_cdp.middleware_async` logger name. Warnings and errors
+(page load timeouts, element wait timeouts, max captcha attempts reached) use
+higher log levels and are always visible.
 
 To see all debug output, set Scrapy's global log level in your `settings.py`:
 
@@ -287,13 +288,17 @@ LOG_LEVEL = 'DEBUG'
 ```
 
 If you prefer to keep Scrapy's own output at a higher level and only enable
-debug logging for this middleware, configure the logger directly:
+debug logging for this middleware, configure the parent logger directly:
 
 ```python
 # settings.py or spider __init__
 import logging
 logging.getLogger('scrapy_seleniumbase_cdp').setLevel(logging.DEBUG)
 ```
+
+This works because the middleware uses a module-level logger named
+`scrapy_seleniumbase_cdp.middleware_async`, which inherits settings from the
+`scrapy_seleniumbase_cdp` parent logger.
 
 You can also use Scrapy's per-module log configuration via the
 [`LOG_CATEGORIES`][6] setting (Scrapy ≥ 2.8):

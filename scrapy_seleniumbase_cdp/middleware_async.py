@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from asyncio import Event
 from base64 import b64decode
 from functools import wraps
@@ -15,6 +16,29 @@ from seleniumbase.undetected.cdp_driver.browser import Browser
 from seleniumbase.undetected.cdp_driver.tab import Tab
 
 from .request import SeleniumBaseRequest
+
+logger = logging.getLogger(__name__)
+
+
+def _handle_errors(error_msg: str):
+    """Decorator that catches and logs exceptions from async middleware methods.
+
+    Wrapped methods log the error but do **not** abort the request — processing
+    continues so that partial results (e.g. page source without a screenshot) are
+    still returned to the spider.
+    """
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                logger.exception(f'{error_msg}: {e}')
+
+        return wrapper
+
+    return decorator
 
 
 class SeleniumBaseAsyncCDPMiddleware:
@@ -57,27 +81,6 @@ class SeleniumBaseAsyncCDPMiddleware:
         crawler.signals.connect(middleware.spider_closed, signals.spider_closed)
         return middleware
 
-    @staticmethod
-    def _handle_errors(error_msg: str):
-        """Decorator that catches and logs exceptions from async middleware methods.
-
-        Wrapped methods log the error but do **not** abort the request — processing
-        continues so that partial results (e.g. page source without a screenshot) are
-        still returned to the spider.
-        """
-
-        def decorator(func):
-            @wraps(func)
-            async def wrapper(self, *args, **kwargs):
-                try:
-                    return await func(self, *args, **kwargs)
-                except Exception as e:
-                    self.crawler.spider.logger.exception(f'{error_msg}: {e}')
-
-            return wrapper
-
-        return decorator
-
     async def process_request(self, request: Request):
         """Process a request using the CDP browser if it is a ``SeleniumBaseRequest``.
 
@@ -93,7 +96,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
-        self.crawler.spider.logger.debug(f'processing request: {request.url}')
+        logger.debug(f'processing request: {request.url}')
 
         status = {'code': 200}
         status_event = Event()
@@ -104,13 +107,13 @@ class SeleniumBaseAsyncCDPMiddleware:
                 return
             status['code'] = e.response.status
             status_event.set()
-            self.crawler.spider.logger.debug(f'response received: [{e.response.status}] {e.response.url}')
+            logger.debug(f'response received: [{e.response.status}] {e.response.url}')
 
         def on_load_complete(e: LoadComplete, connection=None):
             url = next((p.value.value for p in e.root.properties if p.name.value == 'url'), None)
             if url not in request.url:
                 return
-            self.crawler.spider.logger.debug(f'page loaded: {url}')
+            logger.debug(f'page loaded: {url}')
             page_loaded_event.set()
 
         tab = self.browser.main_tab
@@ -125,7 +128,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         except IgnoreRequest:
             raise
         except Exception as e:
-            self.crawler.spider.logger.exception(f'Error processing request: {e}')
+            logger.exception(f'Error processing request: {e}')
             raise IgnoreRequest(f'Error processing request: {e}')
         finally:
             tab.handlers.get(ResponseReceived, []).remove(on_response_received)
@@ -146,12 +149,12 @@ class SeleniumBaseAsyncCDPMiddleware:
             8. Build and return an ``HtmlResponse``.
         """
         tab: Tab = await self.browser.get(request.url)
-        self.crawler.spider.logger.debug(f'navigating to: {request.url}')
+        logger.debug(f'navigating to: {request.url}')
 
         try:
             await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)
         except TimeoutError:
-            self.crawler.spider.logger.warning(f'Timed out waiting for page to load: {request.url}')
+            logger.warning(f'Timed out waiting for page to load: {request.url}')
 
         status_code = status['code']
         if status_code in request.captcha_blocked_codes:
@@ -162,11 +165,11 @@ class SeleniumBaseAsyncCDPMiddleware:
         for attempt in range(request.captcha_max_attempts):
             await asyncio.sleep(delay)
             if not await tab.solve_captcha():
-                self.crawler.spider.logger.debug(f'no captcha detected: {request.url}')
+                logger.debug(f'no captcha detected: {request.url}')
                 break
-            self.crawler.spider.logger.debug(f'captcha solved on attempt {attempt + 1}/{request.captcha_max_attempts}: {request.url}')
+            logger.debug(f'captcha solved on attempt {attempt + 1}/{request.captcha_max_attempts}: {request.url}')
         else:
-            self.crawler.spider.logger.warning(f'Max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
+            logger.warning(f'Max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
 
         await self._wait_for_element(tab, request)
         await self._execute_callback(request)
@@ -187,7 +190,8 @@ class SeleniumBaseAsyncCDPMiddleware:
                             status=status_code,
                             headers={'Cookie': '; '.join(cookies)})
 
-    async def _wait_for_element(self, tab: Tab, request: SeleniumBaseRequest):
+    @staticmethod
+    async def _wait_for_element(tab: Tab, request: SeleniumBaseRequest):
         """Wait for the specified element if requested.
 
         Raises:
@@ -196,13 +200,13 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not request.wait_for_element:
             return
 
-        self.crawler.spider.logger.debug(f'waiting for element "{request.wait_for_element}" (timeout: {request.element_timeout}s): {request.url}')
+        logger.debug(f'waiting for element "{request.wait_for_element}" (timeout: {request.element_timeout}s): {request.url}')
 
         try:
             await tab.wait_for(selector=request.wait_for_element, timeout=request.element_timeout)
         except TimeoutError:
-            self.crawler.spider.logger.error(f'Timed out waiting for element "{request.wait_for_element}" on {request.url}')
-            await self._take_error_screenshot(tab, request)
+            logger.error(f'Timed out waiting for element "{request.wait_for_element}" on {request.url}')
+            await SeleniumBaseAsyncCDPMiddleware._take_error_screenshot(tab, request)
             raise IgnoreRequest(f'Element "{request.wait_for_element}" not found within {request.element_timeout} seconds')
 
     @_handle_errors("Error executing browser callback")
@@ -211,40 +215,43 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not request.browser_callback:
             return
 
-        self.crawler.spider.logger.debug(f'executing browser callback: {request.url}')
+        logger.debug(f'executing browser callback: {request.url}')
         request.meta['callback'] = await request.browser_callback(self.browser)
 
+    @staticmethod
     @_handle_errors("Error executing script")
-    async def _execute_script(self, tab: Tab, request: SeleniumBaseRequest):
+    async def _execute_script(tab: Tab, request: SeleniumBaseRequest):
         """Execute the JavaScript code if requested."""
         if not request.script or not request.script.get('script'):
             return
 
-        self.crawler.spider.logger.debug(f'executing script: {request.url}')
+        logger.debug(f'executing script: {request.url}')
         request.meta['script'] = await tab.evaluate(request.script['script'],
                                                     await_promise=request.script.get('await_promise', False))
 
+    @staticmethod
     @_handle_errors("Error taking screenshot")
-    async def _take_screenshot(self, tab: Tab, request: SeleniumBaseRequest):
+    async def _take_screenshot(tab: Tab, request: SeleniumBaseRequest):
         """Take a screenshot if requested."""
         if not request.screenshot:
             return
 
-        self.crawler.spider.logger.debug(f'taking screenshot: {request.url}')
+        logger.debug(f'taking screenshot: {request.url}')
 
         image_format = request.screenshot.get('format', 'png')
         full_page = request.screenshot.get('full_page', True)
 
         if request.screenshot.get('path'):
             path = await tab.save_screenshot(request.screenshot.get('path'), image_format, full_page)
-            self.crawler.spider.logger.debug(f'Screenshot saved in {path}')
+            logger.debug(f'Screenshot saved in {path}')
         else:
             command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=full_page)
             request.meta['screenshot'] = b64decode(await tab.send(command))
-            self.crawler.spider.logger.debug('Screenshot saved in response.meta["screenshot"]')
+            logger.debug('Screenshot saved in response.meta["screenshot"]')
 
+    @staticmethod
     @_handle_errors("Error taking error screenshot")
-    async def _take_error_screenshot(self, tab: Tab, request: SeleniumBaseRequest):
+    async def _take_error_screenshot(tab: Tab, request: SeleniumBaseRequest):
         """Take a screenshot on error and store it in ``request.meta['error_screenshot']``.
 
         Uses the image format from the request's screenshot configuration if available,
@@ -260,14 +267,14 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=True)
         request.meta['error_screenshot'] = b64decode(await tab.send(command))
-        self.crawler.spider.logger.debug(f'error screenshot saved in request.meta["error_screenshot"]: {request.url}')
+        logger.debug(f'error screenshot saved in request.meta["error_screenshot"]: {request.url}')
 
     async def spider_opened(self, spider):
         """Start the CDP browser when the spider opens."""
         self.browser = await cdp_driver.start_async(**self.browser_options)
-        spider.logger.debug('browser started')
+        logger.debug('browser started')
 
     def spider_closed(self, spider):
         """Stop the browser when the spider closes."""
         self.browser.stop()
-        spider.logger.debug('browser stopped')
+        logger.debug('browser stopped')
