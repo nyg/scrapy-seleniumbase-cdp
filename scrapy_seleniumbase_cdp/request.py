@@ -35,6 +35,19 @@ class ScriptConfig(TypedDict):
 class SeleniumBaseRequest(Request):
     """Subclass of Scrapy ``Request`` providing additional arguments"""
 
+    attributes = Request.attributes + (
+        'page_load_timeout',
+        'captcha_delay',
+        'captcha_blocked_delay',
+        'captcha_blocked_codes',
+        'captcha_max_attempts',
+        'wait_for_element',
+        'element_timeout',
+        'browser_callback',
+        'script',
+        'screenshot',
+    )
+
     def __init__(self,
                  page_load_timeout: int = 10,
                  captcha_delay: float = 0,
