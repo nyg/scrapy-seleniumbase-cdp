@@ -227,7 +227,7 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         logger.debug(f'executing script: {request.url}')
         request.meta['script'] = await tab.evaluate(request.script['script'],
-                                                     await_promise=request.script.get('await_promise', False))
+                                                    await_promise=request.script.get('await_promise', False))
 
     @staticmethod
     @_handle_errors("Error taking screenshot")
