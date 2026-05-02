@@ -9,7 +9,6 @@ from mycdp.accessibility import LoadComplete
 from mycdp.network import ResponseReceived
 from scrapy import Request, signals
 from scrapy.crawler import Crawler
-from scrapy.exceptions import IgnoreRequest
 from scrapy.http import HtmlResponse
 from seleniumbase.undetected import cdp_driver
 from seleniumbase.undetected.cdp_driver.browser import Browser
@@ -125,11 +124,11 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         try:
             return await self._process_request(request, status_event, page_loaded_event, status)
-        except IgnoreRequest:
+        except TimeoutError:
             raise
         except Exception as e:
             logger.exception(f'Error processing request: {e}')
-            raise IgnoreRequest(f'Error processing request: {e}')
+            raise
         finally:
             tab.handlers.get(ResponseReceived, []).remove(on_response_received)
             tab.handlers.get(LoadComplete, []).remove(on_load_complete)
@@ -154,7 +153,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         try:
             await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)
         except TimeoutError:
-            logger.warning(f'Timed out waiting for page to load: {request.url}')
+            logger.warning(f'timed out waiting for page to load: {request.url}')
 
         status_code = status['code']
         if status_code in request.captcha_blocked_codes:
@@ -169,7 +168,7 @@ class SeleniumBaseAsyncCDPMiddleware:
                 break
             logger.debug(f'captcha solved on attempt {attempt + 1}/{request.captcha_max_attempts}: {request.url}')
         else:
-            logger.warning(f'Max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
+            logger.warning(f'max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
 
         await self._wait_for_element(tab, request)
         await self._execute_callback(request)
@@ -200,14 +199,13 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not request.wait_for_element:
             return
 
-        logger.debug(f'waiting for element "{request.wait_for_element}" (timeout: {request.element_timeout}s): {request.url}')
-
         try:
+            logger.debug(f'waiting for element "{request.wait_for_element}" (timeout: {request.element_timeout}s): {request.url}')
             await tab.wait_for(selector=request.wait_for_element, timeout=request.element_timeout)
         except TimeoutError:
-            logger.error(f'Timed out waiting for element "{request.wait_for_element}" on {request.url}')
+            logger.error(f'timed out waiting for element "{request.wait_for_element}" on {request.url}')
             await SeleniumBaseAsyncCDPMiddleware._take_error_screenshot(tab, request)
-            raise IgnoreRequest(f'Element "{request.wait_for_element}" not found within {request.element_timeout} seconds')
+            raise
 
     @_handle_errors("Error executing browser callback")
     async def _execute_callback(self, request: SeleniumBaseRequest):
@@ -243,11 +241,11 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         if request.screenshot.get('path'):
             path = await tab.save_screenshot(request.screenshot.get('path'), image_format, full_page)
-            logger.debug(f'Screenshot saved in {path}')
+            logger.debug(f'screenshot saved in {path}')
         else:
             command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=full_page)
             request.meta['screenshot'] = b64decode(await tab.send(command))
-            logger.debug('Screenshot saved in response.meta["screenshot"]')
+            logger.debug('screenshot saved in response.meta["screenshot"]')
 
     @staticmethod
     @_handle_errors("Error taking error screenshot")
