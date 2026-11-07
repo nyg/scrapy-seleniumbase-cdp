@@ -4,15 +4,23 @@ from types import SimpleNamespace
 
 from mycdp.accessibility import AXNode, AXNodeId, AXProperty, AXPropertyName, AXValue, AXValueType, LoadComplete
 from mycdp.network import Headers, LoaderId, MonotonicTime, RequestId, ResourceType, Response, ResponseReceived
+from mycdp.page import FrameId
 from mycdp.security import SecurityState
+from mycdp.target import TargetID
+
+MAIN_FRAME_ID = 'main-frame'
+IFRAME_ID = 'iframe'
 
 
-def response_received(url: str, status: int) -> ResponseReceived:
+def response_received(url: str,
+                      status: int,
+                      frame_id: str = MAIN_FRAME_ID,
+                      resource_type: ResourceType = ResourceType.DOCUMENT) -> ResponseReceived:
     return ResponseReceived(
         request_id=RequestId('1'),
         loader_id=LoaderId('1'),
         timestamp=MonotonicTime(0),
-        type_=ResourceType.DOCUMENT,
+        type_=resource_type,
         response=Response(
             url=url,
             status=status,
@@ -26,13 +34,13 @@ def response_received(url: str, status: int) -> ResponseReceived:
             security_state=SecurityState.SECURE,
         ),
         has_extra_info=False,
-        frame_id=None,
+        frame_id=FrameId(frame_id),
     )
 
 
-def load_complete(url: str) -> LoadComplete:
+def load_complete(url: str, frame_id: str = MAIN_FRAME_ID) -> LoadComplete:
     url_property = AXProperty(name=AXPropertyName.URL, value=AXValue(type_=AXValueType.STRING, value=url))
-    return LoadComplete(root=AXNode(node_id=AXNodeId('1'), ignored=False, properties=[url_property]))
+    return LoadComplete(root=AXNode(node_id=AXNodeId('1'), ignored=False, properties=[url_property], frame_id=FrameId(frame_id)))
 
 
 def _respond(command, result: dict):
@@ -55,6 +63,7 @@ class FakeTab:
                  screenshot_error: Exception | None = None,
                  html: str = '<html><head></head><body>page</body></html>',
                  screenshot: bytes = b'screenshot'):
+        self.target_id = TargetID(MAIN_FRAME_ID)
         self.handlers = defaultdict(list)
         self.navigation_events = list(navigation_events)
         self.redirect_to = redirect_to

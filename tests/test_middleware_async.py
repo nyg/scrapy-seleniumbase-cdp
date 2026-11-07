@@ -1,7 +1,8 @@
 import pytest
+from mycdp.network import ResourceType
 from scrapy.utils.test import get_crawler
 
-from fakes import FakeBrowser, FakeTab, load_complete, response_received
+from fakes import IFRAME_ID, FakeBrowser, FakeTab, load_complete, response_received
 from scrapy_seleniumbase_cdp import SeleniumBaseAsyncCDPMiddleware, SeleniumBaseRequest
 
 
@@ -54,39 +55,84 @@ async def test_should_return_challenge_status_when_no_captcha_is_solved():
     assert response.status == 403
 
 
-async def test_should_return_redirect_target_url_when_page_redirects():
+async def test_should_return_redirect_target_url_and_status_when_page_redirects():
     # Given
     url = 'https://example.com/old'
     target_url = 'https://example.com/new'
-    tab = FakeTab(navigation_events=[response_received(target_url, 200), load_complete(target_url)],
+    tab = FakeTab(navigation_events=[response_received(target_url, 404), load_complete(target_url)],
                   redirect_to=target_url)
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
     unit.browser = FakeBrowser(tab)
-    # The target's events don't match the request URL, so the page-load wait runs until its timeout (#81).
-    request = SeleniumBaseRequest(url=url, page_load_timeout=0)
 
     # When
-    response = await unit.process_request(request)
+    response = await unit.process_request(SeleniumBaseRequest(url=url))
 
     # Then
     assert response.url == target_url
-    assert response.status == 200
+    assert response.status == 404
 
 
-async def test_should_log_warning_and_return_status_200_when_page_load_times_out_without_response(caplog):
+async def test_should_return_main_frame_status_when_iframe_document_url_is_part_of_request_url():
     # Given
     url = 'https://example.com/page'
-    tab = FakeTab(navigation_events=[load_complete(url)])
+    tab = FakeTab(navigation_events=[response_received(url, 200),
+                                     response_received('https://example.com/', 403, frame_id=IFRAME_ID),
+                                     load_complete(url)])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
     unit.browser = FakeBrowser(tab)
 
     # When
-    response = await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0))
+    response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
 
     # Then
-    assert response.url == url
+    assert response.status == 200
+
+
+async def test_should_return_document_status_when_main_frame_subresource_follows_document():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 404),
+                                     response_received('https://example.com/favicon.ico', 200, resource_type=ResourceType.OTHER),
+                                     load_complete(url)])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url))
+
+    # Then
+    assert response.status == 404
+
+
+async def test_should_log_warning_and_return_response_when_only_iframe_finishes_loading(caplog):
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_complete('https://example.com/', frame_id=IFRAME_ID)])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0.05))
+
+    # Then
     assert response.status == 200
     assert f'timed out waiting for page to load: {url}' in caplog.text
+
+
+async def test_should_log_error_and_raise_timeout_error_when_no_document_response_arrives(caplog):
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[load_complete('chrome-error://chromewebdata/')])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    with pytest.raises(TimeoutError) as error:
+        await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0))
+
+    # Then
+    assert str(error.value) == f'no document response within 0s: {url}'
+    assert f'no document response within 0s: {url}' in caplog.text
 
 
 async def test_should_try_captcha_once_when_no_captcha_is_detected():
@@ -211,7 +257,7 @@ async def test_should_count_only_status_when_no_captcha_is_detected():
     assert crawler.stats.get_stats() == {'seleniumbase/response_status_count/200': 1}
 
 
-async def test_should_not_count_status_when_page_load_times_out_without_response():
+async def test_should_not_count_status_when_no_document_response_arrives():
     # Given
     url = 'https://example.com/page'
     tab = FakeTab(navigation_events=[load_complete(url)])
@@ -220,7 +266,8 @@ async def test_should_not_count_status_when_page_load_times_out_without_response
     unit.browser = FakeBrowser(tab)
 
     # When
-    await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0))
+    with pytest.raises(TimeoutError):
+        await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0))
 
     # Then
     assert crawler.stats.get_stats() == {}

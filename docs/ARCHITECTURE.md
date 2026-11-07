@@ -29,7 +29,7 @@ sequenceDiagram
     Browser-->>MW: ResponseReceived event (HTTP status)
     Browser-->>MW: LoadComplete event (page loaded)
 
-    Note over MW: Wait for both events<br/>(with page_load_timeout)
+    Note over MW: Wait for both events<br/>(with page_load_timeout)<br/>Raises TimeoutError without a document response
 
     loop Captcha solving (up to captcha_max_attempts)
         MW->>MW: asyncio.sleep(delay)
@@ -107,18 +107,15 @@ instance for the lifetime of the spider.
 
 #### Event-driven page load
 
-After calling `browser.get(url)`, the middleware awaits two `asyncio.Event`
-objects — one set by the `ResponseReceived` CDP event (which captures the HTTP
-status code) and one set by the `LoadComplete` accessibility event (which
-signals the page has finished loading). Both are awaited together with
-`asyncio.wait_for(timeout=page_load_timeout)`. If the timeout expires,
-processing continues with a warning.
+After calling `browser.get(url)`, the middleware awaits two `asyncio.Event` objects: one set by the `ResponseReceived` CDP event (which records the HTTP status code) and one set by the `LoadComplete` accessibility event (which signals the page has finished loading). Both handlers keep only the events of the tab's main frame, recognised by its frame id, which Chrome makes equal to the tab's target id. Matching the frame rather than the URL is what lets a redirect, whose only document response is the target page's, record that page's status, and what keeps an iframe's document from overwriting it.
+
+Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeout)`. The status starts unknown (`None`). If the timeout expires after the document response arrived, processing continues with a warning; if no document response arrived, the middleware logs an error and raises `TimeoutError`, so a missing response never passes as a `200`.
 
 #### Captcha solving loop
 
 After page load, the delay is picked once from the recorded HTTP status: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. Each of up to `captcha_max_attempts` attempts sleeps that delay, then calls `tab.solve_captcha()`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues. A `captcha_max_attempts` of `0` skips the loop, its warning and its stats.
 
-Each request counts its outcome once in `crawler.stats`: `seleniumbase/response_status_count/<code>` for the recorded status before the loop (only when a `ResponseReceived` event set it), `captcha/detected` when the first attempt finds a captcha, then `captcha/solved` when a later attempt finds none or `captcha/unsolved` when every attempt finds one.
+Each request counts its outcome once in `crawler.stats`: `seleniumbase/response_status_count/<code>` for the recorded status before the loop, `captcha/detected` when the first attempt finds a captcha, then `captcha/solved` when a later attempt finds none or `captcha/unsolved` when every attempt finds one.
 
 The `ResponseReceived` handler stays registered during the loop, so a solved challenge that reloads the page overwrites the recorded status. The status is read again when the response is built, which is why a solved challenge reaches Scrapy with the reloaded page's status instead of the challenge's.
 
@@ -137,15 +134,12 @@ After captcha handling, the middleware executes optional steps in order:
 - The `_handle_errors` module-level decorator wraps the callback, script, and
   screenshot methods. It catches exceptions and logs them via the module-level
   logger but does **not** abort the request — partial results are still returned.
-- Any other exception leaves `process_request`: the `wait_for_element` `TimeoutError` as is (`_wait_for_element` already logged it), anything else after being logged. Scrapy passes it to the downloader middlewares' `process_exception`, where `RetryMiddleware` retries the request if the exception is in `RETRY_EXCEPTIONS` (`TimeoutError` is, as an `OSError`). Once retries run out, the request's `errback` receives it.
+- Any other exception leaves `process_request`: the `TimeoutError` of a missing document response or of `wait_for_element` as is (`_wait_for_page_load` and `_wait_for_element` already logged it), anything else after being logged. Scrapy passes it to the downloader middlewares' `process_exception`, where `RetryMiddleware` retries the request if the exception is in `RETRY_EXCEPTIONS` (`TimeoutError` is, as an `OSError`). Once retries run out, the request's `errback` receives it.
 
 ### CDP events
 
-- **`ResponseReceived`** (`mycdp.network`) — fired when the browser receives an
-  HTTP response. The middleware filters for `DOCUMENT`-type responses matching
-  the request URL and extracts the status code.
-- **`LoadComplete`** (`mycdp.accessibility`) — fired when the page has finished
-  loading. The middleware filters for URLs matching the request.
+- **`ResponseReceived`** (`mycdp.network`) — fired when the browser receives an HTTP response. The middleware keeps `DOCUMENT`-type responses whose `frame_id` is the main frame's and records the last one's status code.
+- **`LoadComplete`** (`mycdp.accessibility`) — fired when a document has finished loading. The middleware keeps the one whose `root.frame_id` is the main frame's.
 
 ### Browser & Tab (`seleniumbase.undetected.cdp_driver`)
 

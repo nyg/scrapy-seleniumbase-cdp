@@ -77,9 +77,7 @@ arguments. They are executed in the order presented below:
 
 #### `page_load_timeout`
 
-Maximum number of seconds to wait for both the HTTP response and the page load
-event before proceeding. If the timeout is reached, a warning is logged but the
-request continues. Defaults to `10`.
+Maximum number of seconds to wait for both the page's document response and the page load event before proceeding. If only the load event is missing when the timeout is reached, a warning is logged and the request continues. If the document response is missing, the request fails with `TimeoutError` (see [Error handling](#error-handling)). Defaults to `10`.
 
 #### Captcha handling
 
@@ -219,8 +217,9 @@ The middleware checks the HTTP status code right after loading the page to
 determine captcha-solving behaviour (see [Captcha handling](#captcha-handling)
 above).
 
-The response returned to Scrapy carries the status of the last document response for the request URL. When a solved captcha reloads the page, that is the reloaded page's status (usually `200`), not the challenge's `403` or `429`, so Scrapy's `RetryMiddleware` does not retry a page that loaded fine.
+The response returned to Scrapy carries the status of the last document response the tab's main frame received, so a redirect gives the target page's status and an iframe's status is ignored. When a solved captcha reloads the page, that is the reloaded page's status (usually `200`), not the challenge's `403` or `429`, so Scrapy's `RetryMiddleware` does not retry a page that loaded fine.
 
+- **No document response**: if the main frame gets no document response within `page_load_timeout` seconds, for example because the server is too slow or the host cannot be resolved, an error is logged and `TimeoutError` is raised. Scrapy's `RetryMiddleware` retries the request, then passes the `TimeoutError` to the request's `errback`.
 - **`wait_for_element` timeout**: if the expected element is not found within `element_timeout` seconds, a full-page error screenshot is captured and stored in `request.meta['error_screenshot']`, then `TimeoutError` is raised. Scrapy's `RetryMiddleware` retries the request, then passes the `TimeoutError` to the request's `errback`, where the screenshot is in `failure.request.meta['error_screenshot']` (see [`wait_for_element`](#wait_for_element--element_timeout) for an example).
 
 ## Stats
@@ -230,7 +229,7 @@ The middleware counts captcha outcomes in Scrapy's stats (`crawler.stats`), so t
 - `captcha/detected`: requests whose page showed a captcha on the first solve attempt.
 - `captcha/solved`: requests where a later attempt found the captcha gone.
 - `captcha/unsolved`: requests where every attempt still found a captcha (`captcha_max_attempts` reached).
-- `seleniumbase/response_status_count/<code>`: the status the page loaded with, before any captcha was solved. Scrapy's own `downloader/response_status_count/<code>` counts the status returned to Scrapy, which is the reloaded page's after a solved captcha. A page that loads without a document response for the request URL is not counted here.
+- `seleniumbase/response_status_count/<code>`: the status the page loaded with, before any captcha was solved. Scrapy's own `downloader/response_status_count/<code>` counts the status returned to Scrapy, which is the reloaded page's after a solved captcha. A request that gets no document response is not counted here, as it fails with `TimeoutError`.
 
 For example, many `seleniumbase/response_status_count/403` with no `captcha/detected` means the site blocks without a captcha the solver recognises, while a high `captcha/unsolved` means the solver runs but fails.
 
