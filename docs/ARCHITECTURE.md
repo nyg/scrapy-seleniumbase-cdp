@@ -34,7 +34,11 @@ sequenceDiagram
     loop Captcha solving (up to captcha_max_attempts)
         MW->>MW: asyncio.sleep(delay)
         MW->>Browser: tab.solve_captcha()
-        Browser-->>MW: solved / not found
+        Browser-->>MW: clicked / not found
+        opt clicked
+            Browser-->>MW: ResponseReceived + LoadComplete (reload)
+            Note over MW: Wait for both events<br/>(with page_load_timeout)
+        end
     end
 
     opt wait_for_element configured
@@ -114,6 +118,10 @@ Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeou
 #### Captcha solving loop
 
 After page load, the delay is picked once from the recorded HTTP status: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. Each of up to `captcha_max_attempts` attempts sleeps that delay, then calls `tab.solve_captcha()`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues. A `captcha_max_attempts` of `0` skips the loop, its warning and its stats.
+
+`tab.solve_captcha()` returns `True` once it has clicked, not once the challenge has passed. So both events are cleared before each call, and after a click the loop waits for them again, up to `page_load_timeout`, as a passed challenge reloads the page. If no reload comes in time, the next attempt runs anyway.
+
+`request.meta['captcha_unsolved']` is set to `False` before the loop and to `True` when every attempt found a captcha. It is set on every pass because a retried request is a copy of the previous one, meta included.
 
 Each request counts its outcome once in `crawler.stats`: `seleniumbase/response_status_count/<code>` for the recorded status before the loop, `captcha/detected` when the first attempt finds a captcha, then `captcha/solved` when a later attempt finds none or `captcha/unsolved` when every attempt finds one.
 

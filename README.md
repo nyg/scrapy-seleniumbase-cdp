@@ -114,6 +114,17 @@ Available captcha configuration:
   After exhausting all attempts the middleware continues normally but logs a
   warning. Set it to `0` to skip captcha solving.
 
+A click on a captcha only starts its verification, so after each click the middleware waits up to `page_load_timeout` seconds for the page to reload before the next attempt checks whether the captcha is gone.
+
+`response.meta['captcha_unsolved']` is `True` when every attempt still found a captcha, and `False` otherwise. A challenge page can pass `wait_for_element` (Cloudflare's has an `h1`), so check it to tell a blocked page from the real one:
+
+```python
+def parse_result(self, response):
+    if response.meta['captcha_unsolved']:
+        self.logger.warning(f'blocked by a captcha: {response.url}')
+        return
+```
+
 #### `wait_for_element` / `element_timeout`
 
 When used, SeleniumBase will wait for the element with the given CSS selector to appear. The default timeout value is of 10 seconds but can be changed if needed. If the element is not found within the timeout, a full-page error screenshot is captured and stored in `request.meta['error_screenshot']`, then a `TimeoutError` is raised. The screenshot image format is taken from the request's `screenshot` configuration if set, otherwise it defaults to PNG.

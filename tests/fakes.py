@@ -1,3 +1,4 @@
+import asyncio
 from base64 import b64encode
 from collections import defaultdict
 from types import SimpleNamespace
@@ -57,6 +58,7 @@ class FakeTab:
                  redirect_to: str | None = None,
                  captcha_results=(),
                  events_after_captcha=(),
+                 reload_delay: float = 0,
                  element_found: bool = True,
                  script_result=None,
                  script_error: Exception | None = None,
@@ -69,6 +71,7 @@ class FakeTab:
         self.redirect_to = redirect_to
         self.captcha_results = iter(captcha_results)
         self.events_after_captcha = list(events_after_captcha)
+        self.reload_delay = reload_delay
         self.element_found = element_found
         self.script_result = script_result
         self.script_error = script_error
@@ -97,7 +100,7 @@ class FakeTab:
         self.solve_captcha_calls += 1
         solved = next(self.captcha_results, False)
         if solved:
-            self._emit(self.events_after_captcha)
+            asyncio.get_running_loop().call_later(self.reload_delay, self._emit, self.events_after_captcha)
         return solved
 
     async def wait_for(self, selector: str | None = '', text: str | None = '', timeout: float | None = 10):
