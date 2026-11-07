@@ -21,13 +21,12 @@ sequenceDiagram
 
     Note over MW: Skip if not a SeleniumBaseRequest
 
-    MW->>Browser: tab.send(accessibility.enable())
     MW->>Browser: tab.add_handler(ResponseReceived)
-    MW->>Browser: tab.add_handler(LoadComplete)
+    MW->>Browser: tab.add_handler(LoadEventFired)
 
     MW->>Browser: browser.get(url)
     Browser-->>MW: ResponseReceived event (HTTP status)
-    Browser-->>MW: LoadComplete event (page loaded)
+    Browser-->>MW: LoadEventFired event (page loaded)
 
     Note over MW: Wait for both events<br/>(with page_load_timeout)<br/>Raises TimeoutError without a document response
 
@@ -36,7 +35,7 @@ sequenceDiagram
         MW->>Browser: tab.solve_captcha()
         Browser-->>MW: clicked / not found
         opt clicked
-            Browser-->>MW: ResponseReceived + LoadComplete (reload)
+            Browser-->>MW: ResponseReceived + LoadEventFired (reload)
             Note over MW: Wait for both events<br/>(with page_load_timeout)
         end
     end
@@ -63,11 +62,11 @@ sequenceDiagram
     end
 
     MW->>Browser: tab.evaluate('document.documentElement.outerHTML')
-    MW->>Browser: browser.cookies.get_all()
-    MW-->>Engine: HtmlResponse(body, status, cookies)
+    MW->>Browser: tab.send(network.get_cookies(urls=[tab_url]))
+    Browser-->>MW: page cookies → request.meta['cookies']
+    MW-->>Engine: HtmlResponse(body, status)
 
     MW->>Browser: remove event handlers
-    MW->>Browser: tab.send(accessibility.disable())
 
     Engine-->>Spider: response
 ```
@@ -111,7 +110,9 @@ instance for the lifetime of the spider.
 
 #### Event-driven page load
 
-After calling `browser.get(url)`, the middleware awaits two `asyncio.Event` objects: one set by the `ResponseReceived` CDP event (which records the HTTP status code) and one set by the `LoadComplete` accessibility event (which signals the page has finished loading). Both handlers keep only the events of the tab's main frame, recognised by its frame id, which Chrome makes equal to the tab's target id. Matching the frame rather than the URL is what lets a redirect, whose only document response is the target page's, record that page's status, and what keeps an iframe's document from overwriting it.
+After calling `browser.get(url)`, the middleware awaits two `asyncio.Event` objects: one set by the `ResponseReceived` CDP event (which records the HTTP status code) and one set by the `Page.loadEventFired` CDP event (which signals the main frame's `load` event). Chrome fires `loadEventFired` for the main frame only, so its handler needs no filter. The `ResponseReceived` handler keeps only the main frame's document responses, recognised by their frame id, which Chrome makes equal to the tab's target id. Matching the frame rather than the URL is what lets a redirect, whose only document response is the target page's, record that page's status, and what keeps an iframe's document from overwriting it.
+
+SeleniumBase enables the `Network` and `Page` domains on its own: before each command it sends, it enables the domain of every event that has a handler, so the `page.navigate` sent by `browser.get(url)` turns them on.
 
 Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeout)`. The status starts unknown (`None`). If the timeout expires after the document response arrived, processing continues with a warning; if no document response arrived, the middleware logs an error and raises `TimeoutError`, so a missing response never passes as a `200`.
 
@@ -127,6 +128,10 @@ Each request counts its outcome once in `crawler.stats`: `seleniumbase/response_
 
 The `ResponseReceived` handler stays registered during the loop, so a solved challenge that reloads the page overwrites the recorded status. The status is read again when the response is built, which is why a solved challenge reaches Scrapy with the reloaded page's status instead of the challenge's.
 
+#### Cookies
+
+When the response is built, `Network.getCookies` is sent with the tab's final URL, so Chrome returns only the cookies it would send to that URL, not those of the page's iframes or of other sites. They are stored in `request.meta['cookies']` as CDP cookie dicts, a form Scrapy's `Request(cookies=...)` accepts. The response gets no `Cookie` header, which is a request header.
+
 #### Post-load steps
 
 After captcha handling, the middleware executes optional steps in order:
@@ -139,21 +144,18 @@ After captcha handling, the middleware executes optional steps in order:
 
 #### Error handling
 
-- The `_handle_errors` module-level decorator wraps the callback, script, and
-  screenshot methods. It catches exceptions and logs them via the module-level
-  logger but does **not** abort the request — partial results are still returned.
+- The `_handle_errors` module-level decorator wraps the callback, script, screenshot and error screenshot methods. It catches exceptions, logs them via the module-level logger and counts them in a per-step stat (`seleniumbase/script_failed`, …), but does **not** abort the request — partial results are still returned.
 - Any other exception leaves `process_request`: the `TimeoutError` of a missing document response or of `wait_for_element` as is (`_wait_for_page_load` and `_wait_for_element` already logged it), anything else after being logged. Scrapy passes it to the downloader middlewares' `process_exception`, where `RetryMiddleware` retries the request if the exception is in `RETRY_EXCEPTIONS` (`TimeoutError` is, as an `OSError`). Once retries run out, the request's `errback` receives it.
 
 ### CDP events
 
 - **`ResponseReceived`** (`mycdp.network`) — fired when the browser receives an HTTP response. The middleware keeps `DOCUMENT`-type responses whose `frame_id` is the main frame's and records the last one's status code.
-- **`LoadComplete`** (`mycdp.accessibility`) — fired when a document has finished loading. The middleware keeps the one whose `root.frame_id` is the main frame's.
+- **`LoadEventFired`** (`mycdp.page`) — fired when the main frame's `load` event fires. Chrome sends it for the main frame only.
 
 ### Browser & Tab (`seleniumbase.undetected.cdp_driver`)
 
 - **`Browser`** — the top-level CDP browser instance, started once per spider.
-  Provides `get(url)` for navigation, `cookies` for cookie management, and
-  access to `main_tab`.
+  Provides `get(url)` for navigation and access to `main_tab`.
 - **`Tab`** — represents a browser tab. Provides `evaluate()` for JavaScript
   execution, `wait_for()` for element waiting, `solve_captcha()` for captcha
   solving, `save_screenshot()` and `send()` for screenshot capture.

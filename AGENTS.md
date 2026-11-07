@@ -9,7 +9,7 @@ pip install -e . --group test   # --group needs pip 25.1+
 pytest
 ```
 
-- The tests drive `SeleniumBaseAsyncCDPMiddleware.process_request` through the fake `Tab` and `Browser` in `tests/fakes.py`, which hand real `mycdp` `ResponseReceived` and `LoadComplete` events to the middleware's handlers, so no Chrome is needed. When a test needs new browser behaviour, add it to the fakes.
+- The tests drive `SeleniumBaseAsyncCDPMiddleware.process_request` through the fake `Tab` and `Browser` in `tests/fakes.py`, which hand real `mycdp` `ResponseReceived` and `LoadEventFired` events to the middleware's handlers, so no Chrome is needed. When a test needs new browser behaviour, add it to the fakes.
 - Each test is self-contained: it builds its own `FakeTab` and middleware (named `unit`), is named `test_should_<expectation>_when_<condition>`, and is split by bare `# Given`, `# When`, `# Then` comments.
 - `.github/workflows/run-tests.yml` runs the suite on Python 3.11 and the latest 3.x for every pull request and push to `master`.
 

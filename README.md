@@ -70,6 +70,13 @@ async def start(self):
     yield SeleniumBaseRequest(url=url, callback=self.parse_result)
 ```
 
+`response.meta['cookies']` holds the cookies Chrome would send to the page's final URL, as a list of CDP cookie dicts (`name`, `value`, `domain`, `path`, `secure`, `httpOnly`, `expires`, …). Scrapy's `Request(cookies=...)` accepts that list, so a plain request can reuse the browser's session:
+
+```python
+def parse_result(self, response):
+    yield scrapy.Request(next_url, cookies=response.meta['cookies'])
+```
+
 ### Additional arguments
 
 The `scrapy_seleniumbase_cdp.SeleniumBaseRequest` accepts additional
@@ -243,6 +250,8 @@ The middleware counts captcha outcomes in Scrapy's stats (`crawler.stats`), so t
 - `seleniumbase/response_status_count/<code>`: the status the page loaded with, before any captcha was solved. Scrapy's own `downloader/response_status_count/<code>` counts the status returned to Scrapy, which is the reloaded page's after a solved captcha. A request that gets no document response is not counted here, as it fails with `TimeoutError`.
 
 For example, many `seleniumbase/response_status_count/403` with no `captcha/detected` means the site blocks without a captcha the solver recognises, while a high `captcha/unsolved` means the solver runs but fails.
+
+A failing browser callback, script or screenshot is logged and the response still goes through without its result, so each failure is also counted: `seleniumbase/browser_callback_failed`, `seleniumbase/script_failed`, `seleniumbase/screenshot_failed`, and `seleniumbase/error_screenshot_failed` for the screenshot taken when `wait_for_element` times out.
 
 ## Tips for headless Linux environments
 

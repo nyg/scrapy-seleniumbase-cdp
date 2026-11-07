@@ -5,8 +5,8 @@ from base64 import b64decode
 from functools import wraps
 
 import mycdp
-from mycdp.accessibility import LoadComplete
 from mycdp.network import ResponseReceived
+from mycdp.page import LoadEventFired
 from scrapy import Request, signals
 from scrapy.crawler import Crawler
 from scrapy.http import HtmlResponse
@@ -19,8 +19,8 @@ from .request import SeleniumBaseRequest
 logger = logging.getLogger(__name__)
 
 
-def _handle_errors(error_msg: str):
-    """Decorator that catches and logs exceptions from async middleware methods.
+def _handle_errors(error_msg: str, stat: str):
+    """Decorator that catches and logs exceptions from async middleware methods, and counts them in the ``stat`` stat.
 
     Wrapped methods log the error but do **not** abort the request — processing
     continues so that partial results (e.g. page source without a screenshot) are
@@ -29,11 +29,12 @@ def _handle_errors(error_msg: str):
 
     def decorator(func):
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(self, *args, **kwargs):
             try:
-                return await func(*args, **kwargs)
+                return await func(self, *args, **kwargs)
             except Exception as e:
                 logger.exception(f'{error_msg}: {e}')
+                self.stats.inc_value(stat)
 
         return wrapper
 
@@ -87,7 +88,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         For regular Scrapy ``Request`` objects, returns ``None`` so Scrapy handles them normally.
 
         For ``SeleniumBaseRequest`` instances, registers CDP event handlers for
-        ``ResponseReceived`` and ``LoadComplete``, delegates to ``_process_request`` for
+        ``ResponseReceived`` and ``LoadEventFired``, delegates to ``_process_request`` for
         the actual page load and post-processing, then cleans up the handlers.
 
         Raises:
@@ -115,17 +116,13 @@ class SeleniumBaseAsyncCDPMiddleware:
             status_event.set()
             logger.debug(f'response received: [{e.response.status}] {e.response.url}')
 
-        def on_load_complete(e: LoadComplete, connection=None):
-            if e.root.frame_id != main_frame_id:
-                return
-            url = next((p.value.value for p in e.root.properties if p.name.value == 'url'), None)
-            logger.debug(f'page loaded: {url}')
+        # Chrome fires Page.loadEventFired for the main frame only.
+        def on_load_event_fired(e: LoadEventFired):
+            logger.debug(f'load event fired: {request.url}')
             page_loaded_event.set()
 
-        await tab.send(mycdp.accessibility.enable())
-
         tab.add_handler(ResponseReceived, on_response_received)
-        tab.add_handler(LoadComplete, on_load_complete)
+        tab.add_handler(LoadEventFired, on_load_event_fired)
 
         try:
             return await self._process_request(request, status_event, page_loaded_event, status)
@@ -136,8 +133,7 @@ class SeleniumBaseAsyncCDPMiddleware:
             raise
         finally:
             tab.handlers.get(ResponseReceived, []).remove(on_response_received)
-            tab.handlers.get(LoadComplete, []).remove(on_load_complete)
-            await tab.send(mycdp.accessibility.disable())
+            tab.handlers.get(LoadEventFired, []).remove(on_load_event_fired)
 
     async def _process_request(self, request: SeleniumBaseRequest, status_event: Event, page_loaded_event: Event, status: dict):
         """Execute the full request processing pipeline.
@@ -217,16 +213,14 @@ class SeleniumBaseAsyncCDPMiddleware:
         """Build an HtmlResponse from the current tab state."""
         tab_url = await tab.evaluate('window.location.href')
         page_source = await tab.evaluate('document.documentElement.outerHTML')
-        cookies = [f'{c.name}={c.value}' for c in await self.browser.cookies.get_all()]
+        request.meta['cookies'] = [c.to_json() for c in await tab.send(mycdp.network.get_cookies(urls=[tab_url]))]
         return HtmlResponse(url=tab_url,
                             body=page_source.encode('utf-8'),
                             encoding='utf-8',
                             request=request,
-                            status=status_code,
-                            headers={'Cookie': '; '.join(cookies)})
+                            status=status_code)
 
-    @staticmethod
-    async def _wait_for_element(tab: Tab, request: SeleniumBaseRequest):
+    async def _wait_for_element(self, tab: Tab, request: SeleniumBaseRequest):
         """Wait for the specified element if requested.
 
         Raises:
@@ -240,10 +234,10 @@ class SeleniumBaseAsyncCDPMiddleware:
             await tab.wait_for(selector=request.wait_for_element, timeout=request.element_timeout)
         except TimeoutError:
             logger.error(f'timed out waiting for element "{request.wait_for_element}" on {request.url}')
-            await SeleniumBaseAsyncCDPMiddleware._take_error_screenshot(tab, request)
+            await self._take_error_screenshot(tab, request)
             raise
 
-    @_handle_errors("Error executing browser callback")
+    @_handle_errors("Error executing browser callback", 'seleniumbase/browser_callback_failed')
     async def _execute_callback(self, request: SeleniumBaseRequest):
         """Execute the browser callback method if requested."""
         if not request.browser_callback:
@@ -252,9 +246,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         logger.debug(f'executing browser callback: {request.url}')
         request.meta['callback'] = await request.browser_callback(self.browser)
 
-    @staticmethod
-    @_handle_errors("Error executing script")
-    async def _execute_script(tab: Tab, request: SeleniumBaseRequest):
+    @_handle_errors("Error executing script", 'seleniumbase/script_failed')
+    async def _execute_script(self, tab: Tab, request: SeleniumBaseRequest):
         """Execute the JavaScript code if requested."""
         if not request.script or not request.script.get('script'):
             return
@@ -263,9 +256,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         request.meta['script'] = await tab.evaluate(request.script['script'],
                                                     await_promise=request.script.get('await_promise', False))
 
-    @staticmethod
-    @_handle_errors("Error taking screenshot")
-    async def _take_screenshot(tab: Tab, request: SeleniumBaseRequest):
+    @_handle_errors("Error taking screenshot", 'seleniumbase/screenshot_failed')
+    async def _take_screenshot(self, tab: Tab, request: SeleniumBaseRequest):
         """Take a screenshot if requested."""
         if not request.screenshot:
             return
@@ -283,9 +275,8 @@ class SeleniumBaseAsyncCDPMiddleware:
             request.meta['screenshot'] = b64decode(await tab.send(command))
             logger.debug('screenshot saved in response.meta["screenshot"]')
 
-    @staticmethod
-    @_handle_errors("Error taking error screenshot")
-    async def _take_error_screenshot(tab: Tab, request: SeleniumBaseRequest):
+    @_handle_errors("Error taking error screenshot", 'seleniumbase/error_screenshot_failed')
+    async def _take_error_screenshot(self, tab: Tab, request: SeleniumBaseRequest):
         """Take a screenshot on error and store it in ``request.meta['error_screenshot']``.
 
         Uses the image format from the request's screenshot configuration if available,

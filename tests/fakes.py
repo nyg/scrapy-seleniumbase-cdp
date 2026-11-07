@@ -1,11 +1,9 @@
 import asyncio
 from base64 import b64encode
 from collections import defaultdict
-from types import SimpleNamespace
 
-from mycdp.accessibility import AXNode, AXNodeId, AXProperty, AXPropertyName, AXValue, AXValueType, LoadComplete
 from mycdp.network import Headers, LoaderId, MonotonicTime, RequestId, ResourceType, Response, ResponseReceived
-from mycdp.page import FrameId
+from mycdp.page import FrameId, LoadEventFired
 from mycdp.security import SecurityState
 from mycdp.target import TargetID
 
@@ -39,9 +37,13 @@ def response_received(url: str,
     )
 
 
-def load_complete(url: str, frame_id: str = MAIN_FRAME_ID) -> LoadComplete:
-    url_property = AXProperty(name=AXPropertyName.URL, value=AXValue(type_=AXValueType.STRING, value=url))
-    return LoadComplete(root=AXNode(node_id=AXNodeId('1'), ignored=False, properties=[url_property], frame_id=FrameId(frame_id)))
+def load_event_fired() -> LoadEventFired:
+    return LoadEventFired(timestamp=MonotonicTime(0))
+
+
+def cookie(name: str, value: str, domain: str) -> dict:
+    return {'name': name, 'value': value, 'domain': domain, 'path': '/', 'size': len(name + value), 'httpOnly': False, 'secure': True,
+            'session': True, 'priority': 'Medium', 'sourceScheme': 'Secure', 'sourcePort': 443}
 
 
 def _respond(command, result: dict):
@@ -64,7 +66,8 @@ class FakeTab:
                  script_error: Exception | None = None,
                  screenshot_error: Exception | None = None,
                  html: str = '<html><head></head><body>page</body></html>',
-                 screenshot: bytes = b'screenshot'):
+                 screenshot: bytes = b'screenshot',
+                 cookies_by_url: dict[str, list[dict]] | None = None):
         self.target_id = TargetID(MAIN_FRAME_ID)
         self.handlers = defaultdict(list)
         self.navigation_events = list(navigation_events)
@@ -78,6 +81,7 @@ class FakeTab:
         self.screenshot_error = screenshot_error
         self.html = html
         self.screenshot = screenshot
+        self.cookies_by_url = cookies_by_url or {}
         self.location = 'about:blank'
         self.solve_captcha_calls = 0
 
@@ -94,6 +98,10 @@ class FakeTab:
             if self.screenshot_error:
                 raise self.screenshot_error
             return _respond(command, {'data': b64encode(self.screenshot).decode()})
+        if request['method'] == 'Network.getCookies':
+            # Without urls, Chrome returns the cookies of the page and all its subframes.
+            urls = request['params'].get('urls', list(self.cookies_by_url))
+            return _respond(command, {'cookies': [c for url in urls for c in self.cookies_by_url.get(url, [])]})
         return _respond(command, {})
 
     async def solve_captcha(self) -> bool:
@@ -129,20 +137,10 @@ class FakeTab:
                     handler(event)
 
 
-class FakeCookieJar:
-
-    def __init__(self, cookies: dict[str, str]):
-        self._cookies = cookies
-
-    async def get_all(self):
-        return [SimpleNamespace(name=name, value=value) for name, value in self._cookies.items()]
-
-
 class FakeBrowser:
 
-    def __init__(self, tab: FakeTab, cookies: dict[str, str] | None = None):
+    def __init__(self, tab: FakeTab):
         self.main_tab = tab
-        self.cookies = FakeCookieJar(cookies or {})
 
     async def get(self, url: str) -> FakeTab:
         self.main_tab.navigate(url)
