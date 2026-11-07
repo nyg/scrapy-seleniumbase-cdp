@@ -49,7 +49,7 @@ The package exposes two public symbols (re-exported from `__init__.py`):
 
 ## Key Conventions
 
-- **Python 3.10+** is required; the codebase uses `match`/`case` and `TypedDict` with `NotRequired`.
+- **Python 3.11+** is required; the codebase uses `match`/`case` and `TypedDict` with `NotRequired` (added to `typing` in 3.11).
 - The middleware must use async/await (`cdp_driver`'s async API) because pure CDP mode has its own event loop that conflicts with Scrapy's Twisted loop.
 - `SeleniumBaseRequest` kwargs mirror the README documentation exactly — keep them in sync when adding new features.
 - Version is maintained solely in `pyproject.toml` under `[project] version`; `commitizen` updates it automatically — do not edit it manually.
