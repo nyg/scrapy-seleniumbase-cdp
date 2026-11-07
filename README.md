@@ -90,9 +90,9 @@ maximum number of attempts.
 The delay before the first solve attempt and between retries depends on the
 HTTP status code:
 
-- **2xx responses**: wait `captcha_delay` seconds (default `0`)
 - **Blocked responses** (status in `captcha_blocked_codes`): wait
   `captcha_blocked_delay` seconds (default `4`)
+- **Any other status**: wait `captcha_delay` seconds (default `0`)
 
 ```python
 yield SeleniumBaseRequest(
@@ -106,8 +106,7 @@ yield SeleniumBaseRequest(
 
 Available captcha configuration:
 
-- `captcha_delay`: Seconds to wait before solving on a successful response.
-  Defaults to `0`.
+- `captcha_delay`: Seconds to wait before solving when the status is not in `captcha_blocked_codes`. Defaults to `0`.
 - `captcha_blocked_delay`: Seconds to wait before solving on a blocked
   response. Defaults to `4`.
 - `captcha_blocked_codes`: List of HTTP status codes treated as blocked.
@@ -118,21 +117,11 @@ Available captcha configuration:
 
 #### `wait_for_element` / `element_timeout`
 
-When used, SeleniumBase will wait for the element with the given CSS selector
-to appear. The default timeout value is of 10 seconds but can be changed if
-needed. If the element is not found within the timeout, a full-page error
-screenshot is captured and stored in `request.meta['error_screenshot']`, then
-the request is skipped (Scrapy's `IgnoreRequest` is raised). The screenshot
-image format is taken from the request's `screenshot` configuration if set,
-otherwise it defaults to PNG.
+When used, SeleniumBase will wait for the element with the given CSS selector to appear. The default timeout value is of 10 seconds but can be changed if needed. If the element is not found within the timeout, a full-page error screenshot is captured and stored in `request.meta['error_screenshot']`, then a `TimeoutError` is raised. The screenshot image format is taken from the request's `screenshot` configuration if set, otherwise it defaults to PNG.
 
-The error screenshot is accessible in the request's `errback` via
-`failure.request.meta['error_screenshot']`:
+`TimeoutError` is an `OSError`, so Scrapy's `RetryMiddleware` retries the request (`RETRY_TIMES`, 2 by default; set `meta={'dont_retry': True}` to skip that). Once retries run out, the request's `errback` receives the `TimeoutError`, and the last attempt's error screenshot is in `failure.request.meta['error_screenshot']`:
 
 ```python
-from scrapy.spidermiddlewares.httperror import HttpError
-from twisted.internet.error import DNSLookupError, TimeoutError
-
 yield SeleniumBaseRequest(
     url=url,
     callback=self.parse_result,
@@ -231,12 +220,7 @@ above).
 
 The response returned to Scrapy carries the status of the last document response for the request URL. When a solved captcha reloads the page, that is the reloaded page's status (usually `200`), not the challenge's `403` or `429`, so Scrapy's `RetryMiddleware` does not retry a page that loaded fine.
 
-- **`wait_for_element` timeout**: if the expected element is not found within
-  `element_timeout` seconds, a full-page error screenshot is captured and stored
-  in `request.meta['error_screenshot']`, then `IgnoreRequest` is raised, causing
-  Scrapy to skip the request. The screenshot is accessible in the request's
-  `errback` via `failure.request.meta['error_screenshot']` (see
-  [`wait_for_element`](#wait_for_element--element_timeout) for an example).
+- **`wait_for_element` timeout**: if the expected element is not found within `element_timeout` seconds, a full-page error screenshot is captured and stored in `request.meta['error_screenshot']`, then `TimeoutError` is raised. Scrapy's `RetryMiddleware` retries the request, then passes the `TimeoutError` to the request's `errback`, where the screenshot is in `failure.request.meta['error_screenshot']` (see [`wait_for_element`](#wait_for_element--element_timeout) for an example).
 
 ## Tips for headless Linux environments
 
