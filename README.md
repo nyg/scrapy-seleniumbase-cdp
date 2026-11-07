@@ -24,6 +24,7 @@ independent as no WebDriver is required.
     - [`script`](#script)
     - [`screenshot`](#screenshot)
 - [Error handling](#error-handling)
+- [Stats](#stats)
 - [Enabling debug logs](#enabling-debug-logs)
 - [Tips for headless Linux environments](#tips-for-headless-linux-environments)
   - [Recording an Xvfb session with ffmpeg](#recording-an-xvfb-session-with-ffmpeg)
@@ -221,6 +222,17 @@ above).
 The response returned to Scrapy carries the status of the last document response for the request URL. When a solved captcha reloads the page, that is the reloaded page's status (usually `200`), not the challenge's `403` or `429`, so Scrapy's `RetryMiddleware` does not retry a page that loaded fine.
 
 - **`wait_for_element` timeout**: if the expected element is not found within `element_timeout` seconds, a full-page error screenshot is captured and stored in `request.meta['error_screenshot']`, then `TimeoutError` is raised. Scrapy's `RetryMiddleware` retries the request, then passes the `TimeoutError` to the request's `errback`, where the screenshot is in `failure.request.meta['error_screenshot']` (see [`wait_for_element`](#wait_for_element--element_timeout) for an example).
+
+## Stats
+
+The middleware counts captcha outcomes in Scrapy's stats (`crawler.stats`), so they show up in the stats dump at the end of a crawl and in any project that persists stats, whatever the log level:
+
+- `captcha/detected`: requests whose page showed a captcha on the first solve attempt.
+- `captcha/solved`: requests where a later attempt found the captcha gone.
+- `captcha/unsolved`: requests where every attempt still found a captcha (`captcha_max_attempts` reached).
+- `seleniumbase/response_status_count/<code>`: the status the page loaded with, before any captcha was solved. Scrapy's own `downloader/response_status_count/<code>` counts the status returned to Scrapy, which is the reloaded page's after a solved captcha. A page that loads without a document response for the request URL is not counted here.
+
+For example, many `seleniumbase/response_status_count/403` with no `captcha/detected` means the site blocks without a captcha the solver recognises, while a high `captcha/unsolved` means the solver runs but fails.
 
 ## Tips for headless Linux environments
 
