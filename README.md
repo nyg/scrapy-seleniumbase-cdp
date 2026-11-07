@@ -93,12 +93,13 @@ status and the page load event. It then attempts to solve any captcha present
 on the page using SeleniumBase's built-in solver, retrying up to a configurable
 maximum number of attempts.
 
-The delay before the first solve attempt and between retries depends on the
-HTTP status code:
+The delay before each solve attempt depends on the latest HTTP status code of the page:
 
 - **Blocked responses** (status in `captcha_blocked_codes`): wait
   `captcha_blocked_delay` seconds (default `4`)
 - **Any other status**: wait `captcha_delay` seconds (default `0`)
+
+So when a click on a captcha reloads the page with a `200`, the check that follows waits `captcha_delay`, not `captcha_blocked_delay`.
 
 ```python
 yield SeleniumBaseRequest(
