@@ -158,7 +158,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         await self._wait_for_page_load(request, status_event, page_loaded_event)
         self.stats.inc_value(f'seleniumbase/response_status_count/{status["code"]}')
 
-        await self._solve_captcha(tab, request, status['code'], status_event, page_loaded_event)
+        await self._solve_captcha(tab, request, status, status_event, page_loaded_event)
         # SeleniumBase caches the tab's url, which save_screenshot('auto') names files after, and only Browser.get refreshed it.
         await tab.update_target()
         await self._wait_for_element(tab, request)
@@ -181,22 +181,22 @@ class SeleniumBaseAsyncCDPMiddleware:
             logger.error(error)
             raise error from None
 
-    async def _solve_captcha(self, tab: Tab, request: SeleniumBaseRequest, status_code: int, status_event: Event, page_loaded_event: Event):
+    async def _solve_captcha(self, tab: Tab, request: SeleniumBaseRequest, status: dict, status_event: Event, page_loaded_event: Event):
         # Set on every pass so a retried request does not keep the previous attempt's outcome.
         request.meta['captcha_unsolved'] = False
         if not request.captcha_max_attempts:
             return
 
-        if status_code in request.captcha_blocked_codes:
-            delay = request.captcha_blocked_delay
-        elif request.captcha_only_when_blocked:
-            logger.debug(f'no captcha check for unblocked status {status_code}: {request.url}')
+        if request.captcha_only_when_blocked and status['code'] not in request.captcha_blocked_codes:
+            logger.debug(f'no captcha check for unblocked status {status["code"]}: {request.url}')
             return
-        else:
-            delay = request.captcha_delay
 
         for attempt in range(1, request.captcha_max_attempts + 1):
-            await asyncio.sleep(delay)
+            # Read each time: a click whose reload comes back 200 should not wait the blocked delay again.
+            if status['code'] in request.captcha_blocked_codes:
+                await asyncio.sleep(request.captcha_blocked_delay)
+            else:
+                await asyncio.sleep(request.captcha_delay)
             status_event.clear()
             page_loaded_event.clear()
             if not await tab.solve_captcha():

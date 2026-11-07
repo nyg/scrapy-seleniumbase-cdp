@@ -226,7 +226,7 @@ async def test_should_stop_captcha_loop_and_log_warning_when_max_attempts_are_re
     unit.tab = tab
 
     # When
-    await unit.process_request(SeleniumBaseRequest(url=url, captcha_max_attempts=3))
+    await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=3))
 
     # Then
     assert tab.solve_captcha_calls == 3
@@ -249,6 +249,23 @@ async def test_should_return_reloaded_page_status_when_reload_arrives_after_capt
     # Then
     assert response.status == 200
     assert tab.solve_captcha_calls == 2
+
+
+async def test_should_check_captcha_again_after_captcha_delay_when_click_reloads_page_with_unblocked_status():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 429), load_event_fired()],
+                  captcha_results=[True, False],
+                  events_after_captcha=[response_received(url, 200), load_event_fired()])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, captcha_delay=0, captcha_blocked_delay=0.2))
+
+    # Then
+    first_check, second_check = tab.solve_captcha_times
+    assert second_check - first_check < 0.1
 
 
 async def test_should_try_captcha_again_when_click_does_not_reload_page_within_page_load_timeout():

@@ -87,6 +87,7 @@ class FakeTab:
         self.location = 'about:blank'
         self.target = SimpleNamespace(url=self.location)
         self.solve_captcha_calls = 0
+        self.solve_captcha_times = []
 
     def add_handler(self, event_type, handler):
         self.handlers[event_type].append(handler)
@@ -112,6 +113,7 @@ class FakeTab:
 
     async def solve_captcha(self) -> bool:
         self.solve_captcha_calls += 1
+        self.solve_captcha_times.append(asyncio.get_running_loop().time())
         solved = next(self.captcha_results, False)
         if solved:
             asyncio.get_running_loop().call_later(self.reload_delay, self._emit, self.events_after_captcha)
