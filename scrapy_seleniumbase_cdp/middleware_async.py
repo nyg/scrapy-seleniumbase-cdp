@@ -91,7 +91,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         the actual page load and post-processing, then cleans up the handlers.
 
         Raises:
-            TimeoutError: If the ``wait_for_element`` element is not found within ``element_timeout``.
+            TimeoutError: If the main frame gets no document response within ``page_load_timeout``,
+                or the ``wait_for_element`` element is not found within ``element_timeout``.
             Exception: Any other processing error, logged and re-raised.
         """
         if not isinstance(request, SeleniumBaseRequest):
@@ -99,25 +100,27 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         logger.debug(f'processing request: {request.url}')
 
-        status = {'code': 200}
+        tab = self.browser.main_tab
+        # Chrome gives a page target's main frame the target's id.
+        main_frame_id = tab.target_id
+
+        status = {'code': None}
         status_event = Event()
         page_loaded_event = Event()
 
         def on_response_received(e: ResponseReceived):
-            if e.response.url not in request.url or mycdp.network.ResourceType.DOCUMENT != e.type_:
+            if e.frame_id != main_frame_id or mycdp.network.ResourceType.DOCUMENT != e.type_:
                 return
             status['code'] = e.response.status
             status_event.set()
             logger.debug(f'response received: [{e.response.status}] {e.response.url}')
 
         def on_load_complete(e: LoadComplete, connection=None):
-            url = next((p.value.value for p in e.root.properties if p.name.value == 'url'), None)
-            if url not in request.url:
+            if e.root.frame_id != main_frame_id:
                 return
+            url = next((p.value.value for p in e.root.properties if p.name.value == 'url'), None)
             logger.debug(f'page loaded: {url}')
             page_loaded_event.set()
-
-        tab = self.browser.main_tab
 
         await tab.send(mycdp.accessibility.enable())
 
@@ -141,7 +144,8 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         Steps (in order):
             1. Navigate the browser to the request URL.
-            2. Wait for both the HTTP response and the page load event (with timeout).
+            2. Wait for both the main frame's document response and the page load event (with timeout,
+               raises ``TimeoutError`` if the document response never arrives).
             3. Attempt to solve any captcha present on the page.
             4. Wait for a specific DOM element (optional, raises ``TimeoutError`` on timeout).
             5. Execute the user-provided browser callback (optional).
@@ -152,13 +156,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         tab: Tab = await self.browser.get(request.url)
         logger.debug(f'navigating to: {request.url}')
 
-        try:
-            await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)
-        except TimeoutError:
-            logger.warning(f'timed out waiting for page to load: {request.url}')
-
-        if status_event.is_set():
-            self.stats.inc_value(f'seleniumbase/response_status_count/{status["code"]}')
+        await self._wait_for_page_load(request, status_event, page_loaded_event)
+        self.stats.inc_value(f'seleniumbase/response_status_count/{status["code"]}')
 
         await self._solve_captcha(tab, request, status['code'])
         await self._wait_for_element(tab, request)
@@ -168,6 +167,18 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         # Read again: a solved challenge reloads the page and on_response_received records the new status.
         return await self._build_response(tab, request, status['code'])
+
+    @staticmethod
+    async def _wait_for_page_load(request: SeleniumBaseRequest, status_event: Event, page_loaded_event: Event):
+        try:
+            await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)
+        except TimeoutError:
+            if status_event.is_set():
+                logger.warning(f'timed out waiting for page to load: {request.url}')
+                return
+            error = TimeoutError(f'no document response within {request.page_load_timeout}s: {request.url}')
+            logger.error(error)
+            raise error from None
 
     async def _solve_captcha(self, tab: Tab, request: SeleniumBaseRequest, status_code: int):
         if not request.captcha_max_attempts:
