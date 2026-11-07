@@ -12,7 +12,7 @@ async def test_should_return_page_url_body_and_status_when_page_loads():
     tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
                   html='<html><head></head><body>hello</body></html>')
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url))
@@ -30,7 +30,7 @@ async def test_should_store_only_page_url_cookies_in_meta_when_browser_holds_oth
     tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
                   cookies_by_url={url: page_cookies, 'https://ads.example.net/frame': [cookie('tracker', 'xyz', 'ads.example.net')]})
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url))
@@ -40,6 +40,23 @@ async def test_should_store_only_page_url_cookies_in_meta_when_browser_holds_oth
     assert 'Cookie' not in response.headers
 
 
+async def test_should_load_page_in_request_tab_when_browser_has_newer_tab():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()])
+    newer_tab = FakeTab()
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab, newer_tab)
+    unit.tab = tab
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0.05))
+
+    # Then
+    assert response.status == 200
+    assert newer_tab.location == 'about:blank'
+
+
 async def test_should_return_reloaded_page_status_when_captcha_is_solved():
     # Given
     url = 'https://example.com/page'
@@ -47,7 +64,7 @@ async def test_should_return_reloaded_page_status_when_captcha_is_solved():
                   captcha_results=[True, False],
                   events_after_captcha=[response_received(url, 200), load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
@@ -62,7 +79,7 @@ async def test_should_return_challenge_status_when_no_captcha_is_solved():
     tab = FakeTab(navigation_events=[response_received(url, 403), load_event_fired()],
                   captcha_results=[False])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
@@ -78,7 +95,7 @@ async def test_should_return_redirect_target_url_and_status_when_page_redirects(
     tab = FakeTab(navigation_events=[response_received(target_url, 404), load_event_fired()],
                   redirect_to=target_url)
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url))
@@ -88,6 +105,22 @@ async def test_should_return_redirect_target_url_and_status_when_page_redirects(
     assert response.status == 404
 
 
+async def test_should_refresh_tab_cached_url_when_page_redirects():
+    # Given
+    url = 'https://example.com/old'
+    target_url = 'https://example.com/new'
+    tab = FakeTab(navigation_events=[response_received(target_url, 200), load_event_fired()],
+                  redirect_to=target_url)
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url))
+
+    # Then
+    assert tab.target.url == target_url
+
+
 async def test_should_return_main_frame_status_when_iframe_document_url_is_part_of_request_url():
     # Given
     url = 'https://example.com/page'
@@ -95,7 +128,7 @@ async def test_should_return_main_frame_status_when_iframe_document_url_is_part_
                                      response_received('https://example.com/', 403, frame_id=IFRAME_ID),
                                      load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
@@ -111,7 +144,7 @@ async def test_should_return_document_status_when_main_frame_subresource_follows
                                      response_received('https://example.com/favicon.ico', 200, resource_type=ResourceType.OTHER),
                                      load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url))
@@ -125,7 +158,7 @@ async def test_should_log_warning_and_return_response_when_load_event_does_not_f
     url = 'https://example.com/page'
     tab = FakeTab(navigation_events=[response_received(url, 200)])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0.05))
@@ -140,7 +173,7 @@ async def test_should_log_error_and_raise_timeout_error_when_no_document_respons
     url = 'https://example.com/page'
     tab = FakeTab(navigation_events=[load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     with pytest.raises(TimeoutError) as error:
@@ -157,7 +190,7 @@ async def test_should_try_captcha_once_when_no_captcha_is_detected():
     tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
                   captcha_results=[False])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url))
@@ -173,7 +206,7 @@ async def test_should_stop_captcha_loop_when_captcha_is_no_longer_detected(caplo
                   captcha_results=[True, True, False],
                   events_after_captcha=[response_received(url, 200), load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url, captcha_max_attempts=5))
@@ -190,7 +223,7 @@ async def test_should_stop_captcha_loop_and_log_warning_when_max_attempts_are_re
                   captcha_results=[True, True, True, True],
                   events_after_captcha=[response_received(url, 429), load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url, captcha_max_attempts=3))
@@ -208,7 +241,7 @@ async def test_should_return_reloaded_page_status_when_reload_arrives_after_capt
                   events_after_captcha=[response_received(url, 200), load_event_fired()],
                   reload_delay=0.05)
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
@@ -224,7 +257,7 @@ async def test_should_try_captcha_again_when_click_does_not_reload_page_within_p
     tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
                   captcha_results=[True, False])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0.05))
@@ -240,7 +273,7 @@ async def test_should_flag_captcha_unsolved_in_meta_when_max_attempts_are_reache
                   captcha_results=[True, True],
                   events_after_captcha=[response_received(url, 429), load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=2))
@@ -256,7 +289,7 @@ async def test_should_clear_captcha_unsolved_flag_when_retried_request_solves_ca
                   captcha_results=[True, False],
                   events_after_captcha=[response_received(url, 200), load_event_fired()])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
     retried_request = SeleniumBaseRequest(url=url, captcha_blocked_delay=0, meta={'captcha_unsolved': True})
 
     # When
@@ -273,7 +306,7 @@ async def test_should_skip_captcha_without_warning_or_count_when_max_attempts_is
                   captcha_results=[True])
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=0))
@@ -292,7 +325,7 @@ async def test_should_count_challenge_status_and_solved_captcha_when_captcha_is_
                   events_after_captcha=[response_received(url, 200), load_event_fired()])
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
@@ -313,7 +346,7 @@ async def test_should_count_unsolved_captcha_when_max_attempts_are_reached():
                   events_after_captcha=[response_received(url, 429), load_event_fired()])
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=3))
@@ -333,7 +366,7 @@ async def test_should_count_only_status_when_no_captcha_is_detected():
                   captcha_results=[False])
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     await unit.process_request(SeleniumBaseRequest(url=url))
@@ -348,7 +381,7 @@ async def test_should_not_count_status_when_no_document_response_arrives():
     tab = FakeTab(navigation_events=[load_event_fired()])
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     with pytest.raises(TimeoutError):
@@ -365,7 +398,7 @@ async def test_should_store_error_screenshot_and_raise_when_element_is_not_found
                   element_found=False,
                   screenshot=b'error page')
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
     request = SeleniumBaseRequest(url=url, wait_for_element='#content', element_timeout=1)
 
     # When
@@ -382,7 +415,7 @@ async def test_should_log_and_count_error_and_return_response_when_browser_callb
     tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()])
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     async def failing_callback(browser):
         raise RuntimeError('callback failed')
@@ -403,7 +436,7 @@ async def test_should_log_and_count_error_and_return_response_when_script_fails(
                   script_error=RuntimeError('script failed'))
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, script='document.title'))
@@ -421,7 +454,7 @@ async def test_should_log_and_count_error_and_return_response_when_screenshot_fa
                   screenshot_error=RuntimeError('screenshot failed'))
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     response = await unit.process_request(SeleniumBaseRequest(url=url, screenshot=True))
@@ -440,7 +473,7 @@ async def test_should_count_error_and_raise_timeout_error_when_error_screenshot_
                   screenshot_error=RuntimeError('screenshot failed'))
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
-    unit.browser = FakeBrowser(tab)
+    unit.tab = tab
 
     # When
     with pytest.raises(TimeoutError):

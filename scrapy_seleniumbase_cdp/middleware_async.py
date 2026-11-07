@@ -48,7 +48,8 @@ class SeleniumBaseAsyncCDPMiddleware:
     shared CDP browser, while letting regular Scrapy ``Request`` objects pass through unchanged.
 
     Lifecycle:
-        1. ``spider_opened``: starts a shared ``Browser`` instance via ``cdp_driver.start_async``.
+        1. ``spider_opened``: starts a shared ``Browser`` instance via ``cdp_driver.start_async`` and
+           picks the tab every request loads in.
         2. ``process_request``: for each ``SeleniumBaseRequest``, navigates the browser, waits for
            page load, solves captchas, and executes optional post-load steps (element wait, callback,
            script, screenshot).
@@ -68,6 +69,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         self.crawler = crawler
         self.stats = crawler.stats
         self.browser: Browser | None = None
+        self.tab: Tab | None = None
         self.browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
 
     @classmethod
@@ -101,7 +103,7 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         logger.debug(f'processing request: {request.url}')
 
-        tab = self.browser.main_tab
+        tab = self.tab
         # Chrome gives a page target's main frame the target's id.
         main_frame_id = tab.target_id
 
@@ -139,7 +141,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         """Execute the full request processing pipeline.
 
         Steps (in order):
-            1. Navigate the browser to the request URL.
+            1. Navigate the tab to the request URL.
             2. Wait for both the main frame's document response and the page load event (with timeout,
                raises ``TimeoutError`` if the document response never arrives).
             3. Attempt to solve any captcha present on the page.
@@ -149,13 +151,16 @@ class SeleniumBaseAsyncCDPMiddleware:
             7. Take a screenshot (optional).
             8. Build and return an ``HtmlResponse``.
         """
-        tab: Tab = await self.browser.get(request.url)
+        tab = self.tab
         logger.debug(f'navigating to: {request.url}')
+        await tab.send(mycdp.page.navigate(request.url))
 
         await self._wait_for_page_load(request, status_event, page_loaded_event)
         self.stats.inc_value(f'seleniumbase/response_status_count/{status["code"]}')
 
         await self._solve_captcha(tab, request, status['code'], status_event, page_loaded_event)
+        # SeleniumBase caches the tab's url, which save_screenshot('auto') names files after, and only Browser.get refreshed it.
+        await tab.update_target()
         await self._wait_for_element(tab, request)
         await self._execute_callback(request)
         await self._execute_script(tab, request)
@@ -297,6 +302,9 @@ class SeleniumBaseAsyncCDPMiddleware:
     async def spider_opened(self, spider):
         """Start the CDP browser when the spider opens."""
         self.browser = await cdp_driver.start_async(**self.browser_options)
+        # Browser.get applies the sb_config settings (user agent, locale, ad block...) to the tab it navigates, but that tab is
+        # browser.targets[-1], which any tab opened later becomes. So it runs once, and every request reuses this tab.
+        self.tab = await self.browser.get('about:blank')
         logger.debug('browser started')
 
     def spider_closed(self, spider):

@@ -24,7 +24,7 @@ sequenceDiagram
     MW->>Browser: tab.add_handler(ResponseReceived)
     MW->>Browser: tab.add_handler(LoadEventFired)
 
-    MW->>Browser: browser.get(url)
+    MW->>Browser: tab.send(page.navigate(url))
     Browser-->>MW: ResponseReceived event (HTTP status)
     Browser-->>MW: LoadEventFired event (page loaded)
 
@@ -101,8 +101,7 @@ instance for the lifetime of the spider.
 
 #### Lifecycle
 
-1. **`spider_opened`** — starts the CDP browser via
-   `cdp_driver.start_async(**browser_options)`.
+1. **`spider_opened`** — starts the CDP browser via `cdp_driver.start_async(**browser_options)`, then calls `browser.get('about:blank')` once and keeps the tab it returns as the request tab. `Browser.get` applies the settings SeleniumBase keeps in `sb_config` (user agent, locale, timezone, ad block, …) to the tab it navigates, which is `browser.targets[-1]`: the most recent target, of any type. Called per request, it would navigate a tab opened later by a `browser_callback` or a popup, while the handlers listen on another one. The settings are per-tab CDP overrides, so they stay on the request tab, which each request navigates itself with `Page.navigate`.
 2. **`process_request`** — intercepts `SeleniumBaseRequest` instances and
    delegates to the processing pipeline (see diagram above). Regular
    `Request` objects are passed through by returning `None`.
@@ -110,9 +109,9 @@ instance for the lifetime of the spider.
 
 #### Event-driven page load
 
-After calling `browser.get(url)`, the middleware awaits two `asyncio.Event` objects: one set by the `ResponseReceived` CDP event (which records the HTTP status code) and one set by the `Page.loadEventFired` CDP event (which signals the main frame's `load` event). Chrome fires `loadEventFired` for the main frame only, so its handler needs no filter. The `ResponseReceived` handler keeps only the main frame's document responses, recognised by their frame id, which Chrome makes equal to the tab's target id. Matching the frame rather than the URL is what lets a redirect, whose only document response is the target page's, record that page's status, and what keeps an iframe's document from overwriting it.
+After sending `Page.navigate` to the request tab, the middleware awaits two `asyncio.Event` objects: one set by the `ResponseReceived` CDP event (which records the HTTP status code) and one set by the `Page.loadEventFired` CDP event (which signals the main frame's `load` event). Chrome fires `loadEventFired` for the main frame only, so its handler needs no filter. The `ResponseReceived` handler keeps only the main frame's document responses, recognised by their frame id, which Chrome makes equal to the tab's target id. Matching the frame rather than the URL is what lets a redirect, whose only document response is the target page's, record that page's status, and what keeps an iframe's document from overwriting it.
 
-SeleniumBase enables the `Network` and `Page` domains on its own: before each command it sends, it enables the domain of every event that has a handler, so the `page.navigate` sent by `browser.get(url)` turns them on.
+SeleniumBase enables the `Network` and `Page` domains on its own: before each command it sends, it enables the domain of every event that has a handler, so `Page.navigate` turns them on.
 
 Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeout)`. The status starts unknown (`None`). If the timeout expires after the document response arrived, processing continues with a warning; if no document response arrived, the middleware logs an error and raises `TimeoutError`, so a missing response never passes as a `200`.
 
@@ -134,7 +133,7 @@ When the response is built, `Network.getCookies` is sent with the tab's final UR
 
 #### Post-load steps
 
-After captcha handling, the middleware executes optional steps in order:
+After captcha handling, the middleware calls `tab.update_target()`, which refreshes the tab's cached target info: the URL that `tab.url` returns and that `save_screenshot('auto')` names its file after. Only `Browser.get` refreshed it before. Then it executes optional steps in order:
 
 1. **Wait for element** — if the element is not found, saves a full-page screenshot in `request.meta['error_screenshot']` and re-raises `TimeoutError`.
 2. **Browser callback** — result stored in `response.meta['callback']`.
@@ -155,7 +154,7 @@ After captcha handling, the middleware executes optional steps in order:
 ### Browser & Tab (`seleniumbase.undetected.cdp_driver`)
 
 - **`Browser`** — the top-level CDP browser instance, started once per spider.
-  Provides `get(url)` for navigation and access to `main_tab`.
+  Provides `get(url)`, called once to set up the request tab.
 - **`Tab`** — represents a browser tab. Provides `evaluate()` for JavaScript
   execution, `wait_for()` for element waiting, `solve_captcha()` for captcha
   solving, `save_screenshot()` and `send()` for screenshot capture.
