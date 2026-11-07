@@ -187,6 +187,10 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not request.captcha_max_attempts:
             return
 
+        if request.captcha_only_when_blocked and status['code'] not in request.captcha_blocked_codes:
+            logger.debug(f'no captcha check for unblocked status {status["code"]}: {request.url}')
+            return
+
         for attempt in range(1, request.captcha_max_attempts + 1):
             # Read each time: a click whose reload comes back 200 should not wait the blocked delay again.
             if status['code'] in request.captcha_blocked_codes:

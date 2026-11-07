@@ -84,6 +84,7 @@ middleware. It accepts the following kwargs beyond the standard Scrapy ones:
 - **`captcha_blocked_codes`** — HTTP status codes that trigger the blocked
   delay.
 - **`captcha_max_attempts`** — maximum number of captcha solve attempts.
+- **`captcha_only_when_blocked`** — attempt captcha solving only when the page loads with a status in `captcha_blocked_codes`.
 - **`wait_for_element`** / **`element_timeout`** — CSS selector and timeout for
   waiting on a specific DOM element.
 - **`browser_callback`** — an async callback receiving the `Browser` instance.
@@ -117,7 +118,7 @@ Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeou
 
 #### Captcha solving loop
 
-Each of up to `captcha_max_attempts` attempts sleeps a delay picked from the latest recorded HTTP status, then calls `tab.solve_captcha()`: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. The delay is picked again on every attempt, so after a click whose reload comes back `200` the next check waits `captcha_delay`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues. A `captcha_max_attempts` of `0` skips the loop, its warning and its stats.
+Each of up to `captcha_max_attempts` attempts sleeps a delay picked from the latest recorded HTTP status, then calls `tab.solve_captcha()`: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. The delay is picked again on every attempt, so after a click whose reload comes back `200` the next check waits `captcha_delay`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues. A `captcha_max_attempts` of `0` skips the loop, its warning and its stats, and so does `captcha_only_when_blocked` when the status the page first loaded with is outside `captcha_blocked_codes`.
 
 `tab.solve_captcha()` returns `True` once it has clicked, not once the challenge has passed. So both events are cleared before each call, and after a click the loop waits for them again, up to `page_load_timeout`, as a passed challenge reloads the page. If no reload comes in time, the next attempt runs anyway.
 

@@ -41,6 +41,7 @@ class SeleniumBaseRequest(Request):
         'captcha_blocked_delay',
         'captcha_blocked_codes',
         'captcha_max_attempts',
+        'captcha_only_when_blocked',
         'wait_for_element',
         'element_timeout',
         'browser_callback',
@@ -54,6 +55,7 @@ class SeleniumBaseRequest(Request):
                  captcha_blocked_delay: float = 4,
                  captcha_blocked_codes: list[int] | None = None,
                  captcha_max_attempts: int = 3,
+                 captcha_only_when_blocked: bool = False,
                  wait_for_element: str | None = None,
                  element_timeout: int = 10,
                  browser_callback: Callable[[Browser], Awaitable[Any]] | None = None,
@@ -74,6 +76,8 @@ class SeleniumBaseRequest(Request):
                 page. Defaults to [403, 429, 503].
             captcha_max_attempts (int): Maximum number of captcha solve attempts before giving up.
                 Defaults to 3.
+            captcha_only_when_blocked (bool): Whether to attempt captcha solving only when the page first
+                loads with a status in ``captcha_blocked_codes``. Defaults to False.
             wait_for_element (str | None): The CSS selector of an element to wait for before returning
                 the response to the spider.
             element_timeout (int): The number of seconds to wait for the specified element. Defaults to 10.
@@ -94,6 +98,7 @@ class SeleniumBaseRequest(Request):
         self.captcha_blocked_delay = captcha_blocked_delay
         self.captcha_blocked_codes = captcha_blocked_codes if captcha_blocked_codes is not None else [403, 429, 503]
         self.captcha_max_attempts = captcha_max_attempts
+        self.captcha_only_when_blocked = captcha_only_when_blocked
         self.wait_for_element = wait_for_element
         self.element_timeout = element_timeout
         self.browser_callback = browser_callback

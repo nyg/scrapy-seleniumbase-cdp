@@ -334,6 +334,55 @@ async def test_should_skip_captcha_without_warning_or_count_when_max_attempts_is
     assert crawler.stats.get_stats() == {'seleniumbase/response_status_count/403': 1}
 
 
+async def test_should_skip_captcha_check_when_only_when_blocked_and_page_loads_with_unblocked_status():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
+                  captcha_results=[True])
+    crawler = get_crawler()
+    unit = SeleniumBaseAsyncCDPMiddleware(crawler)
+    unit.tab = tab
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, captcha_only_when_blocked=True))
+
+    # Then
+    assert tab.solve_captcha_calls == 0
+    assert crawler.stats.get_stats() == {'seleniumbase/response_status_count/200': 1}
+
+
+async def test_should_clear_captcha_unsolved_flag_when_retried_request_skips_captcha_check():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+    retried_request = SeleniumBaseRequest(url=url, captcha_only_when_blocked=True, meta={'captcha_unsolved': True})
+
+    # When
+    response = await unit.process_request(retried_request)
+
+    # Then
+    assert response.meta['captcha_unsolved'] is False
+
+
+async def test_should_solve_captcha_when_only_when_blocked_and_page_loads_with_blocked_status():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 429), load_event_fired()],
+                  captcha_results=[True, False],
+                  events_after_captcha=[response_received(url, 200), load_event_fired()])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_only_when_blocked=True))
+
+    # Then
+    assert tab.solve_captcha_calls == 2
+    assert response.status == 200
+
+
 async def test_should_count_challenge_status_and_solved_captcha_when_captcha_is_solved():
     # Given
     url = 'https://example.com/page'
