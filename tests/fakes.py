@@ -1,6 +1,7 @@
 import asyncio
 from base64 import b64encode
 from collections import defaultdict
+from types import SimpleNamespace
 
 from mycdp import page
 from mycdp.network import Headers, LoaderId, MonotonicTime, RequestId, ResourceType, Response, ResponseReceived
@@ -84,6 +85,7 @@ class FakeTab:
         self.screenshot = screenshot
         self.cookies_by_url = cookies_by_url or {}
         self.location = 'about:blank'
+        self.target = SimpleNamespace(url=self.location)
         self.solve_captcha_calls = 0
 
     def add_handler(self, event_type, handler):
@@ -104,6 +106,9 @@ class FakeTab:
             urls = request['params'].get('urls', list(self.cookies_by_url))
             return _respond(command, {'cookies': [c for url in urls for c in self.cookies_by_url.get(url, [])]})
         return _respond(command, {})
+
+    async def update_target(self):
+        self.target = SimpleNamespace(url=self.location)
 
     async def solve_captcha(self) -> bool:
         self.solve_captcha_calls += 1

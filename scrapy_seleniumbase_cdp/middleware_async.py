@@ -159,6 +159,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         self.stats.inc_value(f'seleniumbase/response_status_count/{status["code"]}')
 
         await self._solve_captcha(tab, request, status['code'], status_event, page_loaded_event)
+        # SeleniumBase caches the tab's url, which save_screenshot('auto') names files after, and only Browser.get refreshed it.
+        await tab.update_target()
         await self._wait_for_element(tab, request)
         await self._execute_callback(request)
         await self._execute_script(tab, request)

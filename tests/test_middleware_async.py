@@ -105,6 +105,22 @@ async def test_should_return_redirect_target_url_and_status_when_page_redirects(
     assert response.status == 404
 
 
+async def test_should_refresh_tab_cached_url_when_page_redirects():
+    # Given
+    url = 'https://example.com/old'
+    target_url = 'https://example.com/new'
+    tab = FakeTab(navigation_events=[response_received(target_url, 200), load_event_fired()],
+                  redirect_to=target_url)
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url))
+
+    # Then
+    assert tab.target.url == target_url
+
+
 async def test_should_return_main_frame_status_when_iframe_document_url_is_part_of_request_url():
     # Given
     url = 'https://example.com/page'

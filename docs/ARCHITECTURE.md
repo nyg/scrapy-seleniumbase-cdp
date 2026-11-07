@@ -133,7 +133,7 @@ When the response is built, `Network.getCookies` is sent with the tab's final UR
 
 #### Post-load steps
 
-After captcha handling, the middleware executes optional steps in order:
+After captcha handling, the middleware calls `tab.update_target()`, which refreshes the tab's cached target info: the URL that `tab.url` returns and that `save_screenshot('auto')` names its file after. Only `Browser.get` refreshed it before. Then it executes optional steps in order:
 
 1. **Wait for element** — if the element is not found, saves a full-page screenshot in `request.meta['error_screenshot']` and re-raises `TimeoutError`.
 2. **Browser callback** — result stored in `response.meta['callback']`.
