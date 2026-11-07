@@ -2,6 +2,7 @@ import asyncio
 from base64 import b64encode
 from collections import defaultdict
 
+from mycdp import page
 from mycdp.network import Headers, LoaderId, MonotonicTime, RequestId, ResourceType, Response, ResponseReceived
 from mycdp.page import FrameId, LoadEventFired
 from mycdp.security import SecurityState
@@ -88,12 +89,12 @@ class FakeTab:
     def add_handler(self, event_type, handler):
         self.handlers[event_type].append(handler)
 
-    def navigate(self, url: str):
-        self.location = self.redirect_to or url
-        self._emit(self.navigation_events)
-
     async def send(self, command):
         request = next(command)
+        if request['method'] == 'Page.navigate':
+            self.location = self.redirect_to or request['params']['url']
+            self._emit(self.navigation_events)
+            return _respond(command, {'frameId': str(self.target_id)})
         if request['method'] == 'Page.captureScreenshot':
             if self.screenshot_error:
                 raise self.screenshot_error
@@ -139,9 +140,11 @@ class FakeTab:
 
 class FakeBrowser:
 
-    def __init__(self, tab: FakeTab):
-        self.main_tab = tab
+    def __init__(self, *targets: FakeTab):
+        self.targets = list(targets)
 
     async def get(self, url: str) -> FakeTab:
-        self.main_tab.navigate(url)
-        return self.main_tab
+        # Like seleniumbase's Browser.get, which navigates the most recent target.
+        tab = self.targets[-1]
+        await tab.send(page.navigate(url))
+        return tab

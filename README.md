@@ -158,7 +158,7 @@ def handle_error(self, failure):
 
 If needed, it is possible to provide a callback to interact with the browser
 instance and/or its tabs. The return value of the async callback is stored in
-`response.meta['callback']`. 
+`response.meta['callback']`. Requests always load in the tab the middleware set up when the spider opened, so a tab the callback opens does not take them over.
 
 ```python
 async def start(self):
