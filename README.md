@@ -120,6 +120,7 @@ Available captcha configuration:
 - `captcha_max_attempts`: Maximum number of solve attempts. Defaults to `3`.
   After exhausting all attempts the middleware continues normally but logs a
   warning. Set it to `0` to skip captcha solving.
+- `captcha_only_when_blocked`: Attempt captcha solving only when the page loads with a status in `captcha_blocked_codes`. Defaults to `False`, which checks every page, as some sites show a captcha on a `200` page. Each check reads the whole page and took about 1.5s per page on a Raspberry Pi, so set it to `True` when the site serves its challenges with a blocked status.
 
 A click on a captcha only starts its verification, so after each click the middleware waits up to `page_load_timeout` seconds for the page to reload before the next attempt checks whether the captcha is gone.
 

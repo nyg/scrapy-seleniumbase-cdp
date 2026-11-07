@@ -189,6 +189,9 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         if status_code in request.captcha_blocked_codes:
             delay = request.captcha_blocked_delay
+        elif request.captcha_only_when_blocked:
+            logger.debug(f'no captcha check for unblocked status {status_code}: {request.url}')
+            return
         else:
             delay = request.captcha_delay
 
