@@ -117,7 +117,7 @@ Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeou
 
 #### Captcha solving loop
 
-After page load, the delay is picked once from the recorded HTTP status: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. Each of up to `captcha_max_attempts` attempts sleeps that delay, then calls `tab.solve_captcha()`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues. A `captcha_max_attempts` of `0` skips the loop, its warning and its stats.
+Each of up to `captcha_max_attempts` attempts sleeps a delay picked from the latest recorded HTTP status, then calls `tab.solve_captcha()`: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. The delay is picked again on every attempt, so after a click whose reload comes back `200` the next check waits `captcha_delay`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues. A `captcha_max_attempts` of `0` skips the loop, its warning and its stats.
 
 `tab.solve_captcha()` returns `True` once it has clicked, not once the challenge has passed. So both events are cleared before each call, and after a click the loop waits for them again, up to `page_load_timeout`, as a passed challenge reloads the page. If no reload comes in time, the next attempt runs anyway.
 
@@ -125,7 +125,7 @@ After page load, the delay is picked once from the recorded HTTP status: `captch
 
 Each request counts its outcome once in `crawler.stats`: `seleniumbase/response_status_count/<code>` for the recorded status before the loop, `captcha/detected` when the first attempt finds a captcha, then `captcha/solved` when a later attempt finds none or `captcha/unsolved` when every attempt finds one.
 
-The `ResponseReceived` handler stays registered during the loop, so a solved challenge that reloads the page overwrites the recorded status. The status is read again when the response is built, which is why a solved challenge reaches Scrapy with the reloaded page's status instead of the challenge's.
+The `ResponseReceived` handler stays registered during the loop, so a solved challenge that reloads the page overwrites the recorded status. The status is read again before each attempt and when the response is built, which is why a solved challenge reaches Scrapy with the reloaded page's status instead of the challenge's.
 
 #### Cookies
 
