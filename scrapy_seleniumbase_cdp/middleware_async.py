@@ -65,6 +65,7 @@ class SeleniumBaseAsyncCDPMiddleware:
                 is read from it and forwarded as kwargs to ``cdp_driver.start_async``.
         """
         self.crawler = crawler
+        self.stats = crawler.stats
         self.browser: Browser | None = None
         self.browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
 
@@ -156,20 +157,10 @@ class SeleniumBaseAsyncCDPMiddleware:
         except TimeoutError:
             logger.warning(f'timed out waiting for page to load: {request.url}')
 
-        if status['code'] in request.captcha_blocked_codes:
-            delay = request.captcha_blocked_delay
-        else:
-            delay = request.captcha_delay
+        if status_event.is_set():
+            self.stats.inc_value(f'seleniumbase/response_status_count/{status["code"]}')
 
-        for attempt in range(request.captcha_max_attempts):
-            await asyncio.sleep(delay)
-            if not await tab.solve_captcha():
-                logger.debug(f'no captcha detected: {request.url}')
-                break
-            logger.debug(f'captcha solved on attempt {attempt + 1}/{request.captcha_max_attempts}: {request.url}')
-        else:
-            logger.warning(f'max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
-
+        await self._solve_captcha(tab, request, status['code'])
         await self._wait_for_element(tab, request)
         await self._execute_callback(request)
         await self._execute_script(tab, request)
@@ -177,6 +168,29 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         # Read again: a solved challenge reloads the page and on_response_received records the new status.
         return await self._build_response(tab, request, status['code'])
+
+    async def _solve_captcha(self, tab: Tab, request: SeleniumBaseRequest, status_code: int):
+        if not request.captcha_max_attempts:
+            return
+
+        if status_code in request.captcha_blocked_codes:
+            delay = request.captcha_blocked_delay
+        else:
+            delay = request.captcha_delay
+
+        for attempt in range(1, request.captcha_max_attempts + 1):
+            await asyncio.sleep(delay)
+            if not await tab.solve_captcha():
+                logger.debug(f'no captcha detected: {request.url}')
+                if attempt > 1:
+                    self.stats.inc_value('captcha/solved')
+                return
+            if attempt == 1:
+                self.stats.inc_value('captcha/detected')
+            logger.debug(f'captcha solved on attempt {attempt}/{request.captcha_max_attempts}: {request.url}')
+
+        logger.warning(f'max captcha solve attempts ({request.captcha_max_attempts}) reached for {request.url}')
+        self.stats.inc_value('captcha/unsolved')
 
     async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
         """Build an HtmlResponse from the current tab state."""

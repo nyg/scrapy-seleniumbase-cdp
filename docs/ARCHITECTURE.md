@@ -116,7 +116,9 @@ processing continues with a warning.
 
 #### Captcha solving loop
 
-After page load, the delay is picked once from the recorded HTTP status: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. Each of up to `captcha_max_attempts` attempts sleeps that delay, then calls `tab.solve_captcha()`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues.
+After page load, the delay is picked once from the recorded HTTP status: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. Each of up to `captcha_max_attempts` attempts sleeps that delay, then calls `tab.solve_captcha()`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues. A `captcha_max_attempts` of `0` skips the loop, its warning and its stats.
+
+Each request counts its outcome once in `crawler.stats`: `seleniumbase/response_status_count/<code>` for the recorded status before the loop (only when a `ResponseReceived` event set it), `captcha/detected` when the first attempt finds a captcha, then `captcha/solved` when a later attempt finds none or `captcha/unsolved` when every attempt finds one.
 
 The `ResponseReceived` handler stays registered during the loop, so a solved challenge that reloads the page overwrites the recorded status. The status is read again when the response is built, which is why a solved challenge reaches Scrapy with the reloaded page's status instead of the challenge's.
 

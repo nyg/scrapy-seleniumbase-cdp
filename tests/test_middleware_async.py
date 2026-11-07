@@ -136,6 +136,96 @@ async def test_should_stop_captcha_loop_and_log_warning_when_max_attempts_are_re
     assert f'max captcha solve attempts (3) reached for {url}' in caplog.text
 
 
+async def test_should_skip_captcha_without_warning_or_count_when_max_attempts_is_zero(caplog):
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 403), load_complete(url)],
+                  captcha_results=[True])
+    crawler = get_crawler()
+    unit = SeleniumBaseAsyncCDPMiddleware(crawler)
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=0))
+
+    # Then
+    assert tab.solve_captcha_calls == 0
+    assert 'max captcha solve attempts' not in caplog.text
+    assert crawler.stats.get_stats() == {'seleniumbase/response_status_count/403': 1}
+
+
+async def test_should_count_challenge_status_and_solved_captcha_when_captcha_is_solved():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 403), load_complete(url)],
+                  captcha_results=[True, False],
+                  events_after_captcha=[response_received(url, 200), load_complete(url)])
+    crawler = get_crawler()
+    unit = SeleniumBaseAsyncCDPMiddleware(crawler)
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
+
+    # Then
+    assert crawler.stats.get_stats() == {
+        'seleniumbase/response_status_count/403': 1,
+        'captcha/detected': 1,
+        'captcha/solved': 1,
+    }
+
+
+async def test_should_count_unsolved_captcha_when_max_attempts_are_reached():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 429), load_complete(url)],
+                  captcha_results=[True, True, True])
+    crawler = get_crawler()
+    unit = SeleniumBaseAsyncCDPMiddleware(crawler)
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=3))
+
+    # Then
+    assert crawler.stats.get_stats() == {
+        'seleniumbase/response_status_count/429': 1,
+        'captcha/detected': 1,
+        'captcha/unsolved': 1,
+    }
+
+
+async def test_should_count_only_status_when_no_captcha_is_detected():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_complete(url)],
+                  captcha_results=[False])
+    crawler = get_crawler()
+    unit = SeleniumBaseAsyncCDPMiddleware(crawler)
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url))
+
+    # Then
+    assert crawler.stats.get_stats() == {'seleniumbase/response_status_count/200': 1}
+
+
+async def test_should_not_count_status_when_page_load_times_out_without_response():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[load_complete(url)])
+    crawler = get_crawler()
+    unit = SeleniumBaseAsyncCDPMiddleware(crawler)
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0))
+
+    # Then
+    assert crawler.stats.get_stats() == {}
+
+
 async def test_should_store_error_screenshot_and_raise_when_element_is_not_found():
     # Given
     url = 'https://example.com/page'
