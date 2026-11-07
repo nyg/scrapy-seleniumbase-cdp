@@ -40,7 +40,7 @@ sequenceDiagram
     opt wait_for_element configured
         MW->>Browser: tab.wait_for(selector, timeout)
         Browser-->>MW: element found
-        Note over MW: Raises IgnoreRequest on timeout
+        Note over MW: Re-raises TimeoutError on timeout
     end
 
     opt browser_callback configured
@@ -77,8 +77,7 @@ middleware. It accepts the following kwargs beyond the standard Scrapy ones:
 
 - **`page_load_timeout`** — seconds to wait for both the HTTP response and page
   load events.
-- **`captcha_delay`** / **`captcha_blocked_delay`** — seconds to wait before
-  attempting captcha solving on successful/blocked responses.
+- **`captcha_delay`** / **`captcha_blocked_delay`** — seconds to wait before each captcha solve attempt, for a status outside / inside `captcha_blocked_codes`.
 - **`captcha_blocked_codes`** — HTTP status codes that trigger the blocked
   delay.
 - **`captcha_max_attempts`** — maximum number of captcha solve attempts.
@@ -117,11 +116,7 @@ processing continues with a warning.
 
 #### Captcha solving loop
 
-After page load, a delay is applied based on the HTTP status code
-(`captcha_delay` for 2xx, `captcha_blocked_delay` for codes in
-`captcha_blocked_codes`). Then `tab.solve_captcha()` is called in a loop up to
-`captcha_max_attempts` times. If the captcha is not solved within the allowed
-attempts, a warning is logged and processing continues.
+After page load, the delay is picked once from the recorded HTTP status: `captcha_blocked_delay` for a code in `captcha_blocked_codes`, `captcha_delay` for any other. Each of up to `captcha_max_attempts` attempts sleeps that delay, then calls `tab.solve_captcha()`. The loop stops at the first attempt that finds no captcha; if every attempt finds one, a warning is logged and processing continues.
 
 The `ResponseReceived` handler stays registered during the loop, so a solved challenge that reloads the page overwrites the recorded status. The status is read again when the response is built, which is why a solved challenge reaches Scrapy with the reloaded page's status instead of the challenge's.
 
@@ -129,8 +124,7 @@ The `ResponseReceived` handler stays registered during the loop, so a solved cha
 
 After captcha handling, the middleware executes optional steps in order:
 
-1. **Wait for element** — raises `IgnoreRequest` (after saving a debug
-   screenshot) if the element is not found.
+1. **Wait for element** — if the element is not found, saves a full-page screenshot in `request.meta['error_screenshot']` and re-raises `TimeoutError`.
 2. **Browser callback** — result stored in `response.meta['callback']`.
 3. **Script execution** — result stored in `response.meta['script']`.
 4. **Screenshot** — data stored in `response.meta['screenshot']` or saved to
@@ -141,8 +135,7 @@ After captcha handling, the middleware executes optional steps in order:
 - The `_handle_errors` module-level decorator wraps the callback, script, and
   screenshot methods. It catches exceptions and logs them via the module-level
   logger but does **not** abort the request — partial results are still returned.
-- An unrecoverable error in the main pipeline raises `IgnoreRequest`, causing
-  Scrapy to skip the request entirely.
+- Any other exception leaves `process_request`: the `wait_for_element` `TimeoutError` as is (`_wait_for_element` already logged it), anything else after being logged. Scrapy passes it to the downloader middlewares' `process_exception`, where `RetryMiddleware` retries the request if the exception is in `RETRY_EXCEPTIONS` (`TimeoutError` is, as an `OSError`). Once retries run out, the request's `errback` receives it.
 
 ### CDP events
 

@@ -90,7 +90,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         the actual page load and post-processing, then cleans up the handlers.
 
         Raises:
-            IgnoreRequest: If an unrecoverable error occurs during processing.
+            TimeoutError: If the ``wait_for_element`` element is not found within ``element_timeout``.
+            Exception: Any other processing error, logged and re-raised.
         """
         if not isinstance(request, SeleniumBaseRequest):
             return None
@@ -141,7 +142,7 @@ class SeleniumBaseAsyncCDPMiddleware:
             1. Navigate the browser to the request URL.
             2. Wait for both the HTTP response and the page load event (with timeout).
             3. Attempt to solve any captcha present on the page.
-            4. Wait for a specific DOM element (optional, raises ``IgnoreRequest`` on timeout).
+            4. Wait for a specific DOM element (optional, raises ``TimeoutError`` on timeout).
             5. Execute the user-provided browser callback (optional).
             6. Execute a JavaScript snippet (optional).
             7. Take a screenshot (optional).
@@ -194,7 +195,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         """Wait for the specified element if requested.
 
         Raises:
-            IgnoreRequest: If the element is not found within the timeout.
+            TimeoutError: If the element is not found within the timeout.
         """
         if not request.wait_for_element:
             return

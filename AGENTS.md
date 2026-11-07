@@ -18,7 +18,7 @@ pytest
 - Python 3.11 is the minimum: `request.py` imports `typing.NotRequired`.
 - SeleniumBase's sync CDP API runs its own event loop, which cannot run inside Scrapy's, so the middleware awaits the async `cdp_driver` API.
 - A new `SeleniumBaseRequest` argument goes in three places: `__init__`, `SeleniumBaseRequest.attributes` (Scrapy's `Request.replace()` and `to_dict()` copy only the names listed there), and `README.md`.
-- The optional post-load steps (browser callback, script, screenshot, error screenshot) are wrapped in `_handle_errors`, which logs the exception and lets the response through. A `wait_for_element` timeout is the one step that fails the request: it stores `request.meta['error_screenshot']` and re-raises `TimeoutError`.
+- The optional post-load steps (browser callback, script, screenshot, error screenshot) are wrapped in `_handle_errors`, which logs the exception and lets the response through. A `wait_for_element` timeout is the one step that fails the request: it stores `request.meta['error_screenshot']` and re-raises `TimeoutError`, which Scrapy's `RetryMiddleware` retries like any `OSError` before the errback gets it.
 - Log through the module logger, `scrapy_seleniumbase_cdp.middleware_async`: `debug` for routine steps, `warning` when processing carries on past a problem (page-load timeout, exhausted captcha attempts), `error` when a step fails. Write new messages in lowercase and include the request URL.
 
 ## Commits, pull requests and releases

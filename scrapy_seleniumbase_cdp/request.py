@@ -66,8 +66,8 @@ class SeleniumBaseRequest(Request):
         Args:
             page_load_timeout (int): Seconds to wait for the HTTP response and page load events before
                 proceeding. Defaults to 10.
-            captcha_delay (float): Seconds to wait before attempting to solve a captcha on a successful
-                (2xx) response. Defaults to 0.
+            captcha_delay (float): Seconds to wait before attempting to solve a captcha when the
+                response status code is not in ``captcha_blocked_codes``. Defaults to 0.
             captcha_blocked_delay (float): Seconds to wait before attempting to solve a captcha when the
                 response status code is in ``captcha_blocked_codes``. Defaults to 4.
             captcha_blocked_codes (list[int] | None): HTTP status codes that indicate a challenge/blocked
