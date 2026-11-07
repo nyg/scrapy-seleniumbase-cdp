@@ -229,6 +229,8 @@ The middleware checks the HTTP status code right after loading the page to
 determine captcha-solving behaviour (see [Captcha handling](#captcha-handling)
 above).
 
+The response returned to Scrapy carries the status of the last document response for the request URL. When a solved captcha reloads the page, that is the reloaded page's status (usually `200`), not the challenge's `403` or `429`, so Scrapy's `RetryMiddleware` does not retry a page that loaded fine.
+
 - **`wait_for_element` timeout**: if the expected element is not found within
   `element_timeout` seconds, a full-page error screenshot is captured and stored
   in `request.meta['error_screenshot']`, then `IgnoreRequest` is raised, causing

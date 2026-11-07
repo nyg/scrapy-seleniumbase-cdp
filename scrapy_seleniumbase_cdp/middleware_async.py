@@ -155,8 +155,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         except TimeoutError:
             logger.warning(f'timed out waiting for page to load: {request.url}')
 
-        status_code = status['code']
-        if status_code in request.captcha_blocked_codes:
+        if status['code'] in request.captcha_blocked_codes:
             delay = request.captcha_blocked_delay
         else:
             delay = request.captcha_delay
@@ -175,7 +174,8 @@ class SeleniumBaseAsyncCDPMiddleware:
         await self._execute_script(tab, request)
         await self._take_screenshot(tab, request)
 
-        return await self._build_response(tab, request, status_code)
+        # Read again: a solved challenge reloads the page and on_response_received records the new status.
+        return await self._build_response(tab, request, status['code'])
 
     async def _build_response(self, tab: Tab, request: Request, status_code: int) -> HtmlResponse:
         """Build an HtmlResponse from the current tab state."""

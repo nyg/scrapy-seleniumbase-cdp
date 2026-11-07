@@ -123,6 +123,8 @@ After page load, a delay is applied based on the HTTP status code
 `captcha_max_attempts` times. If the captcha is not solved within the allowed
 attempts, a warning is logged and processing continues.
 
+The `ResponseReceived` handler stays registered during the loop, so a solved challenge that reloads the page overwrites the recorded status. The status is read again when the response is built, which is why a solved challenge reaches Scrapy with the reloaded page's status instead of the challenge's.
+
 #### Post-load steps
 
 After captcha handling, the middleware executes optional steps in order:
