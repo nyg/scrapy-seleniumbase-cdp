@@ -136,6 +136,24 @@ async def test_should_stop_captcha_loop_and_log_warning_when_max_attempts_are_re
     assert f'max captcha solve attempts (3) reached for {url}' in caplog.text
 
 
+async def test_should_skip_captcha_without_warning_or_count_when_max_attempts_is_zero(caplog):
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 403), load_complete(url)],
+                  captcha_results=[True])
+    crawler = get_crawler()
+    unit = SeleniumBaseAsyncCDPMiddleware(crawler)
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=0))
+
+    # Then
+    assert tab.solve_captcha_calls == 0
+    assert 'max captcha solve attempts' not in caplog.text
+    assert crawler.stats.get_stats() == {'seleniumbase/response_status_count/403': 1}
+
+
 async def test_should_count_challenge_status_and_solved_captcha_when_captcha_is_solved():
     # Given
     url = 'https://example.com/page'

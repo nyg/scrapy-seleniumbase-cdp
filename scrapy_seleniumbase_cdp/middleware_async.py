@@ -170,6 +170,9 @@ class SeleniumBaseAsyncCDPMiddleware:
         return await self._build_response(tab, request, status['code'])
 
     async def _solve_captcha(self, tab: Tab, request: SeleniumBaseRequest, status_code: int):
+        if not request.captcha_max_attempts:
+            return
+
         if status_code in request.captcha_blocked_codes:
             delay = request.captcha_blocked_delay
         else:

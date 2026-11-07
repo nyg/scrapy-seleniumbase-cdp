@@ -114,7 +114,7 @@ Available captcha configuration:
   Defaults to `[403, 429, 503]`.
 - `captcha_max_attempts`: Maximum number of solve attempts. Defaults to `3`.
   After exhausting all attempts the middleware continues normally but logs a
-  warning.
+  warning. Set it to `0` to skip captcha solving.
 
 #### `wait_for_element` / `element_timeout`
 
