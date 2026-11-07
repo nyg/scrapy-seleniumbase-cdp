@@ -19,7 +19,7 @@ pip install -e . --group test   # pip 25.1+ for --group
 pytest
 ```
 
-The tests in `tests/` drive `SeleniumBaseAsyncCDPMiddleware.process_request` through the fake `Tab` and `Browser` in `tests/fakes.py`, which emit real `mycdp` `ResponseReceived` and `LoadComplete` events, so no Chrome is needed. There are no linter configs in this project.
+The tests in `tests/` drive `SeleniumBaseAsyncCDPMiddleware.process_request` through the fake `Tab` and `Browser` in `tests/fakes.py`, which emit real `mycdp` `ResponseReceived` and `LoadComplete` events, so no Chrome is needed. The `run-tests.yml` workflow runs them on every pull request and push to `master`, on Python 3.11 and the latest 3.x. There are no linter configs in this project.
 
 ## Release Workflow
 

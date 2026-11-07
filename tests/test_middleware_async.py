@@ -62,7 +62,7 @@ async def test_should_return_redirect_target_url_when_page_redirects():
                   redirect_to=target_url)
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
     unit.browser = FakeBrowser(tab)
-    # The target's events don't match the request URL, so the page-load wait runs until its timeout.
+    # The target's events don't match the request URL, so the page-load wait runs until its timeout (#81).
     request = SeleniumBaseRequest(url=url, page_load_timeout=0)
 
     # When
