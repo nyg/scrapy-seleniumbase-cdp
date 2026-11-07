@@ -154,7 +154,8 @@ async def test_should_stop_captcha_loop_when_captcha_is_no_longer_detected(caplo
     # Given
     url = 'https://example.com/page'
     tab = FakeTab(navigation_events=[response_received(url, 200), load_complete(url)],
-                  captcha_results=[True, True, False])
+                  captcha_results=[True, True, False],
+                  events_after_captcha=[response_received(url, 200), load_complete(url)])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
     unit.browser = FakeBrowser(tab)
 
@@ -170,7 +171,8 @@ async def test_should_stop_captcha_loop_and_log_warning_when_max_attempts_are_re
     # Given
     url = 'https://example.com/page'
     tab = FakeTab(navigation_events=[response_received(url, 200), load_complete(url)],
-                  captcha_results=[True, True, True, True])
+                  captcha_results=[True, True, True, True],
+                  events_after_captcha=[response_received(url, 429), load_complete(url)])
     unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
     unit.browser = FakeBrowser(tab)
 
@@ -180,6 +182,72 @@ async def test_should_stop_captcha_loop_and_log_warning_when_max_attempts_are_re
     # Then
     assert tab.solve_captcha_calls == 3
     assert f'max captcha solve attempts (3) reached for {url}' in caplog.text
+
+
+async def test_should_return_reloaded_page_status_when_reload_arrives_after_captcha_click():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 429), load_complete(url)],
+                  captcha_results=[True, False],
+                  events_after_captcha=[response_received(url, 200), load_complete(url)],
+                  reload_delay=0.05)
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0))
+
+    # Then
+    assert response.status == 200
+    assert tab.solve_captcha_calls == 2
+
+
+async def test_should_try_captcha_again_when_click_does_not_reload_page_within_page_load_timeout():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_complete(url)],
+                  captcha_results=[True, False])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, page_load_timeout=0.05))
+
+    # Then
+    assert tab.solve_captcha_calls == 2
+
+
+async def test_should_flag_captcha_unsolved_in_meta_when_max_attempts_are_reached():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 429), load_complete(url)],
+                  captcha_results=[True, True],
+                  events_after_captcha=[response_received(url, 429), load_complete(url)])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab)
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, captcha_max_attempts=2))
+
+    # Then
+    assert response.meta['captcha_unsolved'] is True
+
+
+async def test_should_clear_captcha_unsolved_flag_when_retried_request_solves_captcha():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 429), load_complete(url)],
+                  captcha_results=[True, False],
+                  events_after_captcha=[response_received(url, 200), load_complete(url)])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = FakeBrowser(tab)
+    retried_request = SeleniumBaseRequest(url=url, captcha_blocked_delay=0, meta={'captcha_unsolved': True})
+
+    # When
+    response = await unit.process_request(retried_request)
+
+    # Then
+    assert response.meta['captcha_unsolved'] is False
 
 
 async def test_should_skip_captcha_without_warning_or_count_when_max_attempts_is_zero(caplog):
@@ -225,7 +293,8 @@ async def test_should_count_unsolved_captcha_when_max_attempts_are_reached():
     # Given
     url = 'https://example.com/page'
     tab = FakeTab(navigation_events=[response_received(url, 429), load_complete(url)],
-                  captcha_results=[True, True, True])
+                  captcha_results=[True, True, True],
+                  events_after_captcha=[response_received(url, 429), load_complete(url)])
     crawler = get_crawler()
     unit = SeleniumBaseAsyncCDPMiddleware(crawler)
     unit.browser = FakeBrowser(tab)
