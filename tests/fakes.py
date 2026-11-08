@@ -3,7 +3,7 @@ from base64 import b64encode
 from collections import defaultdict
 from types import SimpleNamespace
 
-from mycdp import page
+from mycdp import network, page
 from mycdp.network import Headers, LoaderId, MonotonicTime, RequestId, ResourceType, Response, ResponseReceived
 from mycdp.page import FrameId, LoadEventFired
 from mycdp.security import SecurityState
@@ -11,6 +11,7 @@ from mycdp.target import TargetID
 
 MAIN_FRAME_ID = 'main-frame'
 IFRAME_ID = 'iframe'
+SCREENSHOT_FORMATS = ('jpeg', 'png', 'webp')
 
 
 def response_received(url: str,
@@ -67,6 +68,7 @@ class FakeTab:
                  script_result=None,
                  script_error: Exception | None = None,
                  screenshot_error: Exception | None = None,
+                 failing_methods=(),
                  html: str = '<html><head></head><body>page</body></html>',
                  screenshot: bytes = b'screenshot',
                  cookies_by_url: dict[str, list[dict]] | None = None):
@@ -81,32 +83,63 @@ class FakeTab:
         self.script_result = script_result
         self.script_error = script_error
         self.screenshot_error = screenshot_error
+        self.failing_methods = set(failing_methods)
         self.html = html
         self.screenshot = screenshot
         self.cookies_by_url = cookies_by_url or {}
+        self.browser: FakeBrowser | None = None
+        self.websocket = object()
+        self.websocket_open = True
+        self.enabled_domains = set()
+        self.user_agent = None
         self.location = 'about:blank'
         self.target = SimpleNamespace(url=self.location)
+        self.navigations = []
         self.solve_captcha_calls = 0
         self.solve_captcha_times = []
 
     def add_handler(self, event_type, handler):
         self.handlers[event_type].append(handler)
 
+    async def aopen(self):
+        # Like seleniumbase's Connection.aopen, which opens a new websocket once the previous one closed: a new DevTools session.
+        if not self.websocket_open:
+            self.websocket = object()
+            self.websocket_open = True
+            self.enabled_domains = set()
+            self.user_agent = None
+
     async def send(self, command):
+        await self.aopen()
         request = next(command)
-        if request['method'] == 'Page.navigate':
-            self.location = self.redirect_to or request['params']['url']
+        method, params = request['method'], request['params']
+        if method in self.failing_methods or method == 'Page.captureScreenshot' and params['format'] not in SCREENSHOT_FORMATS:
+            # Like seleniumbase's Connection.send, which closes the websocket on a CDP error and returns None.
+            self.websocket_open = False
+            return None
+        if method.endswith('.enable'):
+            self.enabled_domains.add(method.removesuffix('.enable').lower())
+            return _respond(command, {})
+        if method == 'Network.setUserAgentOverride':
+            self.user_agent = params['userAgent']
+            return _respond(command, {})
+        if method == 'Page.navigate':
+            self.location = self.redirect_to or params['url']
+            self.navigations.append(SimpleNamespace(url=params['url'], referrer=params.get('referrer'), user_agent=self.user_agent))
             self._emit(self.navigation_events)
             return _respond(command, {'frameId': str(self.target_id)})
-        if request['method'] == 'Page.captureScreenshot':
+        if method == 'Page.captureScreenshot':
             if self.screenshot_error:
                 raise self.screenshot_error
             return _respond(command, {'data': b64encode(self.screenshot).decode()})
-        if request['method'] == 'Network.getCookies':
+        if method == 'Network.getCookies':
             # Without urls, Chrome returns the cookies of the page and all its subframes.
-            urls = request['params'].get('urls', list(self.cookies_by_url))
+            urls = params.get('urls', list(self.cookies_by_url))
             return _respond(command, {'cookies': [c for url in urls for c in self.cookies_by_url.get(url, [])]})
         return _respond(command, {})
+
+    async def close(self):
+        self.browser.targets.remove(self)
 
     async def update_target(self):
         self.target = SimpleNamespace(url=self.location)
@@ -137,6 +170,9 @@ class FakeTab:
 
     def _emit(self, events):
         for event in events:
+            # Chrome sends a domain's events only to the sessions that enabled it.
+            if type(event).__module__.removeprefix('mycdp.') not in self.enabled_domains:
+                continue
             for handler in list(self.handlers[type(event)]):
                 # Same dispatch as seleniumbase's Connection: a handler may or may not take the connection.
                 try:
@@ -147,11 +183,18 @@ class FakeTab:
 
 class FakeBrowser:
 
-    def __init__(self, *targets: FakeTab):
+    def __init__(self, *targets: FakeTab, new_tabs=(), user_agent: str = 'Mozilla/5.0 (fake)'):
         self.targets = list(targets)
+        self.new_tabs = list(new_tabs)
+        self.user_agent = user_agent
+        for tab in self.targets + self.new_tabs:
+            tab.browser = self
 
-    async def get(self, url: str) -> FakeTab:
-        # Like seleniumbase's Browser.get, which navigates the most recent target.
+    async def get(self, url: str, new_tab: bool = False) -> FakeTab:
+        # Like seleniumbase's Browser.get, which sets up and navigates a new tab or, without new_tab, the most recent target.
+        if new_tab:
+            self.targets.append(self.new_tabs.pop(0))
         tab = self.targets[-1]
+        await tab.send(network.set_user_agent_override(user_agent=self.user_agent))
         await tab.send(page.navigate(url))
         return tab

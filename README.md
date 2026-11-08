@@ -77,6 +77,8 @@ def parse_result(self, response):
     yield scrapy.Request(next_url, cookies=response.meta['cookies'])
 ```
 
+Chrome loads every `SeleniumBaseRequest` as a `GET`: a request's method and body are not sent, and a non-`GET` request logs a warning. Of the request's headers, only `Referer` is passed on to Chrome, which sends its own `User-Agent`, `Cookie` and other headers.
+
 ### Additional arguments
 
 The `scrapy_seleniumbase_cdp.SeleniumBaseRequest` accepts additional
@@ -241,6 +243,8 @@ The response returned to Scrapy carries the status of the last document response
 
 - **No document response**: if the main frame gets no document response within `page_load_timeout` seconds, for example because the server is too slow or the host cannot be resolved, an error is logged and `TimeoutError` is raised. Scrapy's `RetryMiddleware` retries the request, then passes the `TimeoutError` to the request's `errback`.
 - **`wait_for_element` timeout**: if the expected element is not found within `element_timeout` seconds, a full-page error screenshot is captured and stored in `request.meta['error_screenshot']`, then `TimeoutError` is raised. Scrapy's `RetryMiddleware` retries the request, then passes the `TimeoutError` to the request's `errback`, where the screenshot is in `failure.request.meta['error_screenshot']` (see [`wait_for_element`](#wait_for_element--element_timeout) for an example).
+
+When a CDP command fails, for example one sent by a browser callback, SeleniumBase closes the tab's DevTools connection, and the next command opens a new session, which has lost the tab's settings (user agent, locale, timezone, ad block, …). The next request then logs a warning, loads in a new tab set up like the first one, and the old tab is closed.
 
 ## Stats
 

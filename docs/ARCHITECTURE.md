@@ -21,10 +21,17 @@ sequenceDiagram
 
     Note over MW: Skip if not a SeleniumBaseRequest
 
+    opt tab lost its DevTools session
+        MW->>Browser: browser.get('about:blank', new_tab=True)
+        MW->>Browser: lost_tab.close()
+    end
+    MW->>Browser: tab.send(network.enable())
+    MW->>Browser: tab.send(page.enable())
+
     MW->>Browser: tab.add_handler(ResponseReceived)
     MW->>Browser: tab.add_handler(LoadEventFired)
 
-    MW->>Browser: tab.send(page.navigate(url))
+    MW->>Browser: tab.send(page.navigate(url, referrer))
     Browser-->>MW: ResponseReceived event (HTTP status)
     Browser-->>MW: LoadEventFired event (page loaded)
 
@@ -102,7 +109,7 @@ instance for the lifetime of the spider.
 
 #### Lifecycle
 
-1. **`spider_opened`** — starts the CDP browser via `cdp_driver.start_async(**browser_options)`, then calls `browser.get('about:blank')` once and keeps the tab it returns as the request tab. `Browser.get` applies the settings SeleniumBase keeps in `sb_config` (user agent, locale, timezone, ad block, …) to the tab it navigates, which is `browser.targets[-1]`: the most recent target, of any type. Called per request, it would navigate a tab opened later by a `browser_callback` or a popup, while the handlers listen on another one. The settings are per-tab CDP overrides, so they stay on the request tab, which each request navigates itself with `Page.navigate`.
+1. **`spider_opened`** — starts the CDP browser via `cdp_driver.start_async(**browser_options)`, then calls `browser.get('about:blank')` once and keeps the tab it returns as the request tab. `Browser.get` applies the settings SeleniumBase keeps in `sb_config` (user agent, locale, timezone, ad block, …) to the tab it navigates, which is `browser.targets[-1]`: the most recent target, of any type. Called per request, it would navigate a tab opened later by a `browser_callback` or a popup, while the handlers listen on another one. The settings are per-tab CDP overrides, so they stay on the request tab, which each request navigates itself with `Page.navigate`, until the tab loses its DevTools session (see [Lost DevTools session](#lost-devtools-session)).
 2. **`process_request`** — intercepts `SeleniumBaseRequest` instances and
    delegates to the processing pipeline (see diagram above). Regular
    `Request` objects are passed through by returning `None`.
@@ -112,9 +119,17 @@ instance for the lifetime of the spider.
 
 After sending `Page.navigate` to the request tab, the middleware awaits two `asyncio.Event` objects: one set by the `ResponseReceived` CDP event (which records the HTTP status code) and one set by the `Page.loadEventFired` CDP event (which signals the main frame's `load` event). Chrome fires `loadEventFired` for the main frame only, so its handler needs no filter. The `ResponseReceived` handler keeps only the main frame's document responses, recognised by their frame id, which Chrome makes equal to the tab's target id. Matching the frame rather than the URL is what lets a redirect, whose only document response is the target page's, record that page's status, and what keeps an iframe's document from overwriting it.
 
-SeleniumBase enables the `Network` and `Page` domains on its own: before each command it sends, it enables the domain of every event that has a handler, so `Page.navigate` turns them on.
+The middleware sends `Network.enable` and `Page.enable` before each navigation. SeleniumBase would enable them on its own, as before each command it sends it enables the domain of every event that has a handler, but it skips the domains in its `enabled_domains` list, which outlives the session that enabled them.
+
+`Page.navigate` loads every request as a `GET`, so a request's method and body are not sent, and a non-`GET` request logs a warning. Of the request's headers, only `Referer` is passed on, as `Page.navigate`'s `referrer`: Chrome sends its own `User-Agent`, `Cookie` and other headers.
 
 Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeout)`. The status starts unknown (`None`). If the timeout expires after the document response arrived, processing continues with a warning; if no document response arrived, the middleware logs an error and raises `TimeoutError`, so a missing response never passes as a `200`.
+
+#### Lost DevTools session
+
+On any CDP error, SeleniumBase's `Connection.send` closes the tab's websocket and returns `None`, and the next command opens a new websocket, which is a new DevTools session: it has none of the overrides `Browser.get` applied to the tab (user agent, locale, timezone, blocked URLs, …), and none of its enabled domains.
+
+The middleware keeps the websocket the tab was set up on. Before each request, it calls `tab.aopen()`, which opens a new websocket if the previous one closed, and compares the two. When they differ, it logs a warning, calls `browser.get('about:blank', new_tab=True)`, which sets up the tab it opens, makes it the request tab and closes the old one. The request that hit the CDP error is not affected, as building its response needs neither the overrides nor the events.
 
 #### Captcha solving loop
 
@@ -140,7 +155,7 @@ After captcha handling, the middleware calls `tab.update_target()`, which refres
 2. **Browser callback** — result stored in `response.meta['callback']`.
 3. **Script execution** — result stored in `response.meta['script']`.
 4. **Screenshot** — data stored in `response.meta['screenshot']` or saved to
-   disk.
+   disk. Without a path, a `jpg` format is sent as `jpeg`, as `Page.captureScreenshot` accepts only `jpeg`, `png` and `webp`.
 
 #### Error handling
 
