@@ -57,6 +57,116 @@ async def test_should_load_page_in_request_tab_when_browser_has_newer_tab():
     assert newer_tab.location == 'about:blank'
 
 
+async def test_should_load_next_page_in_same_tab_when_no_cdp_error_occurred():
+    # Given
+    url = 'https://example.com/page'
+    next_url = 'https://example.com/next'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()])
+    browser = FakeBrowser(tab)
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = browser
+    unit.tab = await browser.get('about:blank')
+    await unit.process_request(SeleniumBaseRequest(url=url))
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=next_url))
+
+    # Then
+    assert tab.location == next_url
+    assert browser.targets == [tab]
+
+
+async def test_should_return_next_page_when_cdp_error_closed_tab_session():
+    # Given
+    url = 'https://example.com/page'
+    next_url = 'https://example.com/next'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
+                  failing_methods={'Page.captureScreenshot'})
+    new_tab = FakeTab(navigation_events=[response_received(next_url, 200), load_event_fired()])
+    browser = FakeBrowser(tab, new_tabs=[new_tab])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = browser
+    unit.tab = await browser.get('about:blank')
+    await unit.process_request(SeleniumBaseRequest(url=url, screenshot=True))
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=next_url, page_load_timeout=0.05))
+
+    # Then
+    assert response.url == next_url
+    assert response.status == 200
+
+
+async def test_should_load_next_page_in_new_tab_with_browser_user_agent_when_cdp_error_closed_tab_session():
+    # Given
+    url = 'https://example.com/page'
+    next_url = 'https://example.com/next'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
+                  failing_methods={'Page.captureScreenshot'})
+    new_tab = FakeTab(navigation_events=[response_received(next_url, 200), load_event_fired()])
+    browser = FakeBrowser(tab, new_tabs=[new_tab], user_agent='Mozilla/5.0 (crawler)')
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = browser
+    unit.tab = await browser.get('about:blank')
+    await unit.process_request(SeleniumBaseRequest(url=url, screenshot=True))
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=next_url))
+
+    # Then
+    assert new_tab.location == next_url
+    assert new_tab.navigations[-1].user_agent == 'Mozilla/5.0 (crawler)'
+
+
+async def test_should_close_tab_when_cdp_error_closed_its_session():
+    # Given
+    url = 'https://example.com/page'
+    next_url = 'https://example.com/next'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
+                  failing_methods={'Page.captureScreenshot'})
+    new_tab = FakeTab(navigation_events=[response_received(next_url, 200), load_event_fired()])
+    browser = FakeBrowser(tab, new_tabs=[new_tab])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.browser = browser
+    unit.tab = await browser.get('about:blank')
+    await unit.process_request(SeleniumBaseRequest(url=url, screenshot=True))
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=next_url))
+
+    # Then
+    assert browser.targets == [new_tab]
+
+
+async def test_should_send_referer_header_as_navigation_referrer_when_request_has_referer():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    await unit.process_request(SeleniumBaseRequest(url=url, headers={'Referer': 'https://example.com/list'}))
+
+    # Then
+    assert tab.navigations[-1].referrer == 'https://example.com/list'
+
+
+async def test_should_log_warning_and_return_page_when_request_method_is_post(caplog):
+    # Given
+    url = 'https://example.com/search'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url, method='POST', body='q=cars'))
+
+    # Then
+    assert response.status == 200
+    assert f'POST request loaded as GET, without its body: {url}' in caplog.text
+
+
 async def test_should_return_reloaded_page_status_when_captcha_is_solved():
     # Given
     url = 'https://example.com/page'
@@ -475,6 +585,24 @@ async def test_should_store_error_screenshot_and_raise_when_element_is_not_found
     assert request.meta['error_screenshot'] == b'error page'
 
 
+async def test_should_store_error_screenshot_when_element_is_not_found_and_screenshot_format_is_jpg():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
+                  element_found=False,
+                  screenshot=b'error page')
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+    request = SeleniumBaseRequest(url=url, wait_for_element='#content', element_timeout=1, screenshot={'format': 'jpg'})
+
+    # When
+    with pytest.raises(TimeoutError):
+        await unit.process_request(request)
+
+    # Then
+    assert request.meta['error_screenshot'] == b'error page'
+
+
 async def test_should_log_and_count_error_and_return_response_when_browser_callback_fails(caplog):
     # Given
     url = 'https://example.com/page'
@@ -529,6 +657,21 @@ async def test_should_log_and_count_error_and_return_response_when_screenshot_fa
     assert response.status == 200
     assert 'Error taking screenshot: screenshot failed' in caplog.text
     assert crawler.stats.get_value('seleniumbase/screenshot_failed') == 1
+
+
+async def test_should_store_screenshot_when_format_is_jpg():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
+                  screenshot=b'jpeg image')
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url, screenshot={'format': 'jpg'}))
+
+    # Then
+    assert response.meta['screenshot'] == b'jpeg image'
 
 
 async def test_should_count_error_and_raise_timeout_error_when_error_screenshot_fails():

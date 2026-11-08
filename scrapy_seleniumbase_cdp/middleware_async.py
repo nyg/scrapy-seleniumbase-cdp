@@ -10,6 +10,7 @@ from mycdp.page import LoadEventFired
 from scrapy import Request, signals
 from scrapy.crawler import Crawler
 from scrapy.http import HtmlResponse
+from scrapy.utils.python import to_unicode
 from seleniumbase.undetected import cdp_driver
 from seleniumbase.undetected.cdp_driver.browser import Browser
 from seleniumbase.undetected.cdp_driver.tab import Tab
@@ -69,8 +70,19 @@ class SeleniumBaseAsyncCDPMiddleware:
         self.crawler = crawler
         self.stats = crawler.stats
         self.browser: Browser | None = None
-        self.tab: Tab | None = None
+        self._tab: Tab | None = None
+        self._tab_websocket = None
         self.browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
+
+    @property
+    def tab(self) -> Tab | None:
+        return self._tab
+
+    @tab.setter
+    def tab(self, tab: Tab):
+        self._tab = tab
+        # The websocket of the session the tab was set up on, which _prepare_tab tells a reopened one from.
+        self._tab_websocket = tab.websocket
 
     @classmethod
     def from_crawler(cls, crawler: Crawler):
@@ -103,6 +115,7 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         logger.debug(f'processing request: {request.url}')
 
+        await self._prepare_tab(request)
         tab = self.tab
         # Chrome gives a page target's main frame the target's id.
         main_frame_id = tab.target_id
@@ -137,6 +150,23 @@ class SeleniumBaseAsyncCDPMiddleware:
             tab.handlers.get(ResponseReceived, []).remove(on_response_received)
             tab.handlers.get(LoadEventFired, []).remove(on_load_event_fired)
 
+    async def _prepare_tab(self, request: SeleniumBaseRequest):
+        # On any CDP error, SeleniumBase's Connection.send closes the tab's websocket, and the next command opens a new one:
+        # a new DevTools session, without the tab's overrides (user agent, locale, timezone, blocked URLs).
+        await self.tab.aopen()
+        if self.tab.websocket is not self._tab_websocket:
+            logger.warning(f'request tab lost its devtools session, loading in a new tab: {request.url}')
+            await self._replace_tab()
+        # SeleniumBase keeps a domain in enabled_domains after the session that enabled it is gone, so it would not enable it again.
+        await self.tab.send(mycdp.network.enable())
+        await self.tab.send(mycdp.page.enable())
+
+    async def _replace_tab(self):
+        lost_tab = self.tab
+        # Browser.get applies the sb_config settings to the tab it opens.
+        self.tab = await self.browser.get('about:blank', new_tab=True)
+        await lost_tab.close()
+
     async def _process_request(self, request: SeleniumBaseRequest, status_event: Event, page_loaded_event: Event, status: dict):
         """Execute the full request processing pipeline.
 
@@ -152,8 +182,7 @@ class SeleniumBaseAsyncCDPMiddleware:
             8. Build and return an ``HtmlResponse``.
         """
         tab = self.tab
-        logger.debug(f'navigating to: {request.url}')
-        await tab.send(mycdp.page.navigate(request.url))
+        await self._navigate(tab, request)
 
         await self._wait_for_page_load(request, status_event, page_loaded_event)
         self.stats.inc_value(f'seleniumbase/response_status_count/{status["code"]}')
@@ -168,6 +197,14 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         # Read again: a solved challenge reloads the page and on_response_received records the new status.
         return await self._build_response(tab, request, status['code'])
+
+    @staticmethod
+    async def _navigate(tab: Tab, request: SeleniumBaseRequest):
+        if request.method != 'GET':
+            logger.warning(f'{request.method} request loaded as GET, without its body: {request.url}')
+        referer = request.headers.get('Referer')
+        logger.debug(f'navigating to: {request.url}')
+        await tab.send(mycdp.page.navigate(request.url, referrer=to_unicode(referer) if referer else None))
 
     @staticmethod
     async def _wait_for_page_load(request: SeleniumBaseRequest, status_event: Event, page_loaded_event: Event):
@@ -279,8 +316,7 @@ class SeleniumBaseAsyncCDPMiddleware:
             path = await tab.save_screenshot(request.screenshot.get('path'), image_format, full_page)
             logger.debug(f'screenshot saved in {path}')
         else:
-            command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=full_page)
-            request.meta['screenshot'] = b64decode(await tab.send(command))
+            request.meta['screenshot'] = await self._capture_screenshot(tab, image_format, full_page)
             logger.debug('screenshot saved in response.meta["screenshot"]')
 
     @_handle_errors("Error taking error screenshot", 'seleniumbase/error_screenshot_failed')
@@ -298,15 +334,22 @@ class SeleniumBaseAsyncCDPMiddleware:
         if request.screenshot and isinstance(request.screenshot, dict):
             image_format = request.screenshot.get('format', 'png')
 
-        command = mycdp.page.capture_screenshot(format_=image_format, capture_beyond_viewport=True)
-        request.meta['error_screenshot'] = b64decode(await tab.send(command))
+        request.meta['error_screenshot'] = await self._capture_screenshot(tab, image_format, True)
         logger.debug(f'error screenshot saved in request.meta["error_screenshot"]: {request.url}')
+
+    @staticmethod
+    async def _capture_screenshot(tab: Tab, image_format: str, full_page: bool) -> bytes:
+        # Page.captureScreenshot accepts jpeg, png and webp, while save_screenshot, given a path, also accepts jpg.
+        cdp_format = 'jpeg' if image_format == 'jpg' else image_format
+        command = mycdp.page.capture_screenshot(format_=cdp_format, capture_beyond_viewport=full_page)
+        return b64decode(await tab.send(command))
 
     async def spider_opened(self, spider):
         """Start the CDP browser when the spider opens."""
         self.browser = await cdp_driver.start_async(**self.browser_options)
         # Browser.get applies the sb_config settings (user agent, locale, ad block...) to the tab it navigates, but that tab is
-        # browser.targets[-1], which any tab opened later becomes. So it runs once, and every request reuses this tab.
+        # browser.targets[-1], which any tab opened later becomes. So it runs once, and every request reuses this tab until
+        # the tab loses its DevTools session.
         self.tab = await self.browser.get('about:blank')
         logger.debug('browser started')
 
