@@ -108,6 +108,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         Raises:
             TimeoutError: If the main frame gets no document response within ``page_load_timeout``,
                 or the ``wait_for_element`` element is not found within ``element_timeout``.
+            ConnectionError: If the tab loses its DevTools session while solving a captcha it then clicks.
             Exception: Any other processing error, logged and re-raised.
         """
         if not isinstance(request, SeleniumBaseRequest):
@@ -141,7 +142,7 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         try:
             return await self._process_request(request, status_event, page_loaded_event, status)
-        except TimeoutError:
+        except (TimeoutError, ConnectionError):
             raise
         except Exception as e:
             logger.exception(f'Error processing request: {e}')
@@ -150,11 +151,14 @@ class SeleniumBaseAsyncCDPMiddleware:
             tab.handlers.get(ResponseReceived, []).remove(on_response_received)
             tab.handlers.get(LoadEventFired, []).remove(on_load_event_fired)
 
-    async def _prepare_tab(self, request: SeleniumBaseRequest):
+    async def _tab_session_lost(self) -> bool:
         # On any CDP error, SeleniumBase's Connection.send closes the tab's websocket, and the next command opens a new one:
         # a new DevTools session, without the tab's overrides (user agent, locale, timezone, blocked URLs).
         await self.tab.aopen()
-        if self.tab.websocket is not self._tab_websocket:
+        return self.tab.websocket is not self._tab_websocket
+
+    async def _prepare_tab(self, request: SeleniumBaseRequest):
+        if await self._tab_session_lost():
             logger.warning(f'request tab lost its devtools session, loading in a new tab: {request.url}')
             await self._replace_tab()
         # SeleniumBase keeps a domain in enabled_domains after the session that enabled it is gone, so it would not enable it again.
@@ -244,6 +248,11 @@ class SeleniumBaseAsyncCDPMiddleware:
             if attempt == 1:
                 self.stats.inc_value('captcha/detected')
             logger.debug(f'captcha clicked on attempt {attempt}/{request.captcha_max_attempts}: {request.url}')
+            if await self._tab_session_lost():
+                # The reload would reach a session with no domain enabled and without the tab's overrides, so a retry loads the page in a new tab.
+                error = ConnectionError(f'request tab lost its devtools session while solving the captcha: {request.url}')
+                logger.error(error)
+                raise error
             # solve_captcha() returns once it has clicked, while the challenge may still be verifying.
             try:
                 await asyncio.wait_for(asyncio.gather(status_event.wait(), page_loaded_event.wait()), timeout=request.page_load_timeout)

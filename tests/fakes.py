@@ -62,6 +62,7 @@ class FakeTab:
                  navigation_events=(),
                  redirect_to: str | None = None,
                  captcha_results=(),
+                 cdp_error_in_captcha: bool = False,
                  events_after_captcha=(),
                  reload_delay: float = 0,
                  element_found: bool = True,
@@ -77,6 +78,7 @@ class FakeTab:
         self.navigation_events = list(navigation_events)
         self.redirect_to = redirect_to
         self.captcha_results = iter(captcha_results)
+        self.cdp_error_in_captcha = cdp_error_in_captcha
         self.events_after_captcha = list(events_after_captcha)
         self.reload_delay = reload_delay
         self.element_found = element_found
@@ -147,6 +149,9 @@ class FakeTab:
     async def solve_captcha(self) -> bool:
         self.solve_captcha_calls += 1
         self.solve_captcha_times.append(asyncio.get_running_loop().time())
+        if self.cdp_error_in_captcha:
+            # Like a DOM query of seleniumbase's solve_captcha failing on a changing page: Connection.send closes the websocket.
+            self.websocket_open = False
         solved = next(self.captcha_results, False)
         if solved:
             asyncio.get_running_loop().call_later(self.reload_delay, self._emit, self.events_after_captcha)
@@ -169,6 +174,8 @@ class FakeTab:
         return str(filename)
 
     def _emit(self, events):
+        if not self.websocket_open:
+            return
         for event in events:
             # Chrome sends a domain's events only to the sessions that enabled it.
             if type(event).__module__.removeprefix('mycdp.') not in self.enabled_domains:

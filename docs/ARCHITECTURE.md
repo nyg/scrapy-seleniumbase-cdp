@@ -129,7 +129,7 @@ Both events are awaited together with `asyncio.wait_for(timeout=page_load_timeou
 
 On any CDP error, SeleniumBase's `Connection.send` closes the tab's websocket and returns `None`, and the next command opens a new websocket, which is a new DevTools session: it has none of the overrides `Browser.get` applied to the tab (user agent, locale, timezone, blocked URLs, …), and none of its enabled domains.
 
-The middleware keeps the websocket the tab was set up on. Before each request, it calls `tab.aopen()`, which opens a new websocket if the previous one closed, and compares the two. When they differ, it logs a warning, calls `browser.get('about:blank', new_tab=True)`, which sets up the tab it opens, makes it the request tab and closes the old one. The request that hit the CDP error is not affected, as building its response needs neither the overrides nor the events.
+The middleware keeps the websocket the tab was set up on. Before each request, it calls `tab.aopen()`, which opens a new websocket if the previous one closed, and compares the two. When they differ, it logs a warning, calls `browser.get('about:blank', new_tab=True)`, which sets up the tab it opens, makes it the request tab and closes the old one. The request that hit the CDP error is not affected, as building its response needs neither the overrides nor the events, except when the error came during a captcha check that then clicked: the reload would reach the new session, which enabled no domain and has no overrides. The middleware checks the session after each click the same way, and on a lost one logs an error and raises `ConnectionError`, so the retry loads the page in a new tab.
 
 #### Captcha solving loop
 
@@ -160,7 +160,7 @@ After captcha handling, the middleware calls `tab.update_target()`, which refres
 #### Error handling
 
 - The `_handle_errors` module-level decorator wraps the callback, script, screenshot and error screenshot methods. It catches exceptions, logs them via the module-level logger and counts them in a per-step stat (`seleniumbase/script_failed`, …), but does **not** abort the request — partial results are still returned.
-- Any other exception leaves `process_request`: the `TimeoutError` of a missing document response or of `wait_for_element` as is (`_wait_for_page_load` and `_wait_for_element` already logged it), anything else after being logged. Scrapy passes it to the downloader middlewares' `process_exception`, where `RetryMiddleware` retries the request if the exception is in `RETRY_EXCEPTIONS` (`TimeoutError` is, as an `OSError`). Once retries run out, the request's `errback` receives it.
+- Any other exception leaves `process_request`: the `TimeoutError` of a missing document response or of `wait_for_element`, and the `ConnectionError` of a session lost during a captcha click, as is (the step that raised it already logged it), anything else after being logged. Scrapy passes it to the downloader middlewares' `process_exception`, where `RetryMiddleware` retries the request if the exception is in `RETRY_EXCEPTIONS` (`TimeoutError` and `ConnectionError` are, as `OSError`s). Once retries run out, the request's `errback` receives it.
 
 ### CDP events
 
