@@ -343,6 +343,40 @@ async def test_should_stop_captcha_loop_and_log_warning_when_max_attempts_are_re
     assert f'max captcha solve attempts (3) reached for {url}' in caplog.text
 
 
+async def test_should_log_error_and_raise_connection_error_when_tab_loses_session_while_solving_captcha(caplog):
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 403), load_event_fired()],
+                  captcha_results=[True, False],
+                  cdp_error_in_captcha=True,
+                  events_after_captcha=[response_received(url, 200), load_event_fired()])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    with pytest.raises(ConnectionError):
+        await unit.process_request(SeleniumBaseRequest(url=url, captcha_blocked_delay=0, page_load_timeout=0.05))
+
+    # Then
+    assert f'request tab lost its devtools session while solving the captcha: {url}' in caplog.text
+
+
+async def test_should_return_page_when_tab_loses_session_while_finding_no_captcha():
+    # Given
+    url = 'https://example.com/page'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()],
+                  captcha_results=[False],
+                  cdp_error_in_captcha=True)
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    response = await unit.process_request(SeleniumBaseRequest(url=url))
+
+    # Then
+    assert response.status == 200
+
+
 async def test_should_return_reloaded_page_status_when_reload_arrives_after_captcha_click():
     # Given
     url = 'https://example.com/page'
