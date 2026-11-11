@@ -72,6 +72,7 @@ class SeleniumBaseAsyncCDPMiddleware:
         self.browser: Browser | None = None
         self._tab: Tab | None = None
         self._tab_websocket = None
+        self._tab_lock = asyncio.Lock()
         self.browser_options = crawler.settings.get('SELENIUMBASE_BROWSER_OPTIONS', {})
 
     @property
@@ -101,9 +102,9 @@ class SeleniumBaseAsyncCDPMiddleware:
 
         For regular Scrapy ``Request`` objects, returns ``None`` so Scrapy handles them normally.
 
-        For ``SeleniumBaseRequest`` instances, registers CDP event handlers for
-        ``ResponseReceived`` and ``LoadEventFired``, delegates to ``_process_request`` for
-        the actual page load and post-processing, then cleans up the handlers.
+        For ``SeleniumBaseRequest`` instances, waits for the requests ahead of it to leave the tab,
+        registers CDP event handlers for ``ResponseReceived`` and ``LoadEventFired``, delegates to
+        ``_process_request`` for the actual page load and post-processing, then cleans up the handlers.
 
         Raises:
             TimeoutError: If the main frame gets no document response within ``page_load_timeout``,
@@ -114,6 +115,11 @@ class SeleniumBaseAsyncCDPMiddleware:
         if not isinstance(request, SeleniumBaseRequest):
             return None
 
+        # Scrapy calls process_request for up to CONCURRENT_REQUESTS requests at once, and they all load in the one tab.
+        async with self._tab_lock:
+            return await self._process_in_tab(request)
+
+    async def _process_in_tab(self, request: SeleniumBaseRequest):
         logger.debug(f'processing request: {request.url}')
 
         await self._prepare_tab(request)

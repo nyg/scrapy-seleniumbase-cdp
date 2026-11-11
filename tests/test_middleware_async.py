@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from mycdp.network import ResourceType
 from scrapy.utils.test import get_crawler
@@ -55,6 +57,23 @@ async def test_should_load_page_in_request_tab_when_browser_has_newer_tab():
     # Then
     assert response.status == 200
     assert newer_tab.location == 'about:blank'
+
+
+async def test_should_return_each_request_its_own_page_when_requests_are_processed_concurrently():
+    # Given
+    url = 'https://example.com/page'
+    other_url = 'https://example.com/other'
+    tab = FakeTab(navigation_events=[response_received(url, 200), load_event_fired()])
+    unit = SeleniumBaseAsyncCDPMiddleware(get_crawler())
+    unit.tab = tab
+
+    # When
+    response, other_response = await asyncio.gather(unit.process_request(SeleniumBaseRequest(url=url)),
+                                                    unit.process_request(SeleniumBaseRequest(url=other_url)))
+
+    # Then
+    assert response.url == url
+    assert other_response.url == other_url
 
 
 async def test_should_load_next_page_in_same_tab_when_no_cdp_error_occurred():
