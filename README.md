@@ -79,6 +79,8 @@ def parse_result(self, response):
 
 Chrome loads every `SeleniumBaseRequest` as a `GET`: a request's method and body are not sent, and a non-`GET` request logs a warning. Of the request's headers, only `Referer` is passed on to Chrome, which sends its own `User-Agent`, `Cookie` and other headers.
 
+The middleware loads one `SeleniumBaseRequest` at a time, in a single tab: with `CONCURRENT_REQUESTS` above `1`, the others wait their turn.
+
 ### Additional arguments
 
 The `scrapy_seleniumbase_cdp.SeleniumBaseRequest` accepts additional

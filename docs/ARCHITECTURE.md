@@ -20,6 +20,7 @@ sequenceDiagram
     Engine->>MW: process_request(request)
 
     Note over MW: Skip if not a SeleniumBaseRequest
+    Note over MW: Wait for the tab lock<br/>(one request at a time)
 
     opt tab lost its DevTools session
         MW->>Browser: browser.get('about:blank', new_tab=True)
@@ -114,6 +115,10 @@ instance for the lifetime of the spider.
    delegates to the processing pipeline (see diagram above). Regular
    `Request` objects are passed through by returning `None`.
 3. **`spider_closed`** — stops the browser.
+
+#### One request at a time
+
+Scrapy calls `process_request` before a request reaches the downloader's per-domain slots, so up to `CONCURRENT_REQUESTS` requests are in it at once. They all load in the one request tab, where a second navigation would replace the first and both requests would read the same page. So the middleware holds an `asyncio.Lock` from the session check to the removal of the handlers, and each request has the tab to itself. The lock wakes waiters in the order they arrived, so requests load in the order Scrapy sent them. The wait is not part of `page_load_timeout`, which starts once the request has navigated.
 
 #### Event-driven page load
 
